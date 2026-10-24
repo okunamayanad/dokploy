@@ -21,9 +21,10 @@ import { github } from "./github";
 import { gitlab } from "./gitlab";
 import { mounts } from "./mount";
 import { patch } from "./patch";
+import { previewDeployments } from "./preview-deployments";
 import { schedules } from "./schedule";
 import { server } from "./server";
-import { applicationStatus, triggerType } from "./shared";
+import { applicationStatus, certificateType, triggerType } from "./shared";
 import { sshKeys } from "./ssh-key";
 import {
 	APP_NAME_MESSAGE,
@@ -53,6 +54,24 @@ export const compose = pgTable("compose", {
 		.$defaultFn(() => generateAppName("compose")),
 	description: text("description"),
 	env: encryptedText("env"),
+	previewEnv: encryptedText("previewEnv"),
+	previewLabels: text("previewLabels").array(),
+	previewWildcard: text("previewWildcard"),
+	previewServiceName: text("previewServiceName"),
+	previewPort: integer("previewPort").default(3000),
+	previewHttps: boolean("previewHttps").notNull().default(false),
+	previewPath: text("previewPath").default("/"),
+	previewCertificateType: certificateType("previewCertificateType")
+		.notNull()
+		.default("none"),
+	previewCustomCertResolver: text("previewCustomCertResolver"),
+	previewLimit: integer("previewLimit").default(3),
+	isPreviewDeploymentsActive: boolean("isPreviewDeploymentsActive").default(
+		false,
+	),
+	previewRequireCollaboratorPermissions: boolean(
+		"previewRequireCollaboratorPermissions",
+	).default(true),
 	composeFile: text("composeFile").notNull().default(""),
 	refreshToken: text("refreshToken").$defaultFn(() => nanoid()),
 	sourceType: sourceTypeCompose("sourceType").notNull().default("github"),
@@ -141,6 +160,7 @@ export const composeRelations = relations(compose, ({ one, many }) => ({
 		references: [environments.environmentId],
 	}),
 	deployments: many(deployments),
+	previewDeployments: many(previewDeployments),
 	mounts: many(mounts),
 	customGitSSHKey: one(sshKeys, {
 		fields: [compose.customGitSSHKeyId],
@@ -181,6 +201,19 @@ const branchField = z
 
 const createSchema = createInsertSchema(compose, {
 	name: z.string().min(1),
+	previewEnv: z.string().optional(),
+	previewLabels: z.array(z.string()).optional(),
+	previewWildcard: z
+		.string()
+		.regex(
+			/^\*\.[a-zA-Z0-9.-]+$/,
+			"Use a wildcard domain such as *.example.com",
+		)
+		.optional(),
+	previewServiceName: z.string().min(1).optional(),
+	previewPort: z.number().int().min(1).max(65535).optional(),
+	previewLimit: z.number().int().min(1).optional(),
+	previewCertificateType: z.enum(["letsencrypt", "none", "custom"]).optional(),
 	branch: branchField,
 	gitlabBranch: branchField,
 	bitbucketBranch: branchField,
