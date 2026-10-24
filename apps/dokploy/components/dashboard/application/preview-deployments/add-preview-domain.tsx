@@ -121,10 +121,12 @@ export const AddPreviewDomain = ({
 			...data,
 		})
 			.then(async () => {
-				toast.success(dictionary.success);
-				await utils.previewDeployment.all.invalidate({
-					applicationId: previewDeployment?.applicationId,
-				});
+				toast.success(
+					previewDeployment?.composeId
+						? `${dictionary.success}. Rebuild the preview to apply routing changes.`
+						: dictionary.success,
+				);
+				await utils.previewDeployment.all.invalidate();
 
 				if (domainId) {
 					refetch();
@@ -184,7 +186,9 @@ export const AddPreviewDomain = ({
 																		appName: previewDeployment?.appName || "",
 																		serverId:
 																			previewDeployment?.application
-																				?.serverId || "",
+																				?.serverId ||
+																			previewDeployment?.compose?.serverId ||
+																			"",
 																	})
 																		.then((domain) => {
 																			field.onChange(domain);

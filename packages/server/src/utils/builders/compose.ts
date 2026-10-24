@@ -17,7 +17,9 @@ export type ComposeNested = InferResultType<
 	{ environment: { with: { project: true } }; mounts: true; domains: true }
 >;
 
-export const getBuildComposeCommand = async (rawCompose: ComposeNested) => {
+export const getBuildComposeCommand = async (
+	rawCompose: ComposeNested & { previewDeploymentId?: string },
+) => {
 	const compose = await withResolvedVaultRefs(rawCompose);
 	const { COMPOSE_PATH } = paths(!!compose.serverId);
 	const { sourceType, appName, mounts, composeType, domains } = compose;

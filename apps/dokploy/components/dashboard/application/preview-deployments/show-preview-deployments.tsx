@@ -37,11 +37,20 @@ import { AddPreviewDomain } from "./add-preview-domain";
 import { ShowPreviewSettings } from "./show-preview-settings";
 
 interface Props {
-	applicationId: string;
+	applicationId?: string;
+	composeId?: string;
 }
 
-export const ShowPreviewDeployments = ({ applicationId }: Props) => {
-	const { data } = api.application.one.useQuery({ applicationId });
+export const ShowPreviewDeployments = ({ applicationId, composeId }: Props) => {
+	const { data: application } = api.application.one.useQuery(
+		{ applicationId: applicationId || "" },
+		{ enabled: !!applicationId },
+	);
+	const { data: compose } = api.compose.one.useQuery(
+		{ composeId: composeId || "" },
+		{ enabled: !!composeId },
+	);
+	const data = composeId ? compose : application;
 
 	const { mutateAsync: deletePreviewDeployment, isPending } =
 		api.previewDeployment.delete.useMutation();
@@ -54,9 +63,9 @@ export const ShowPreviewDeployments = ({ applicationId }: Props) => {
 		refetch: refetchPreviewDeployments,
 		isLoading: isLoadingPreviewDeployments,
 	} = api.previewDeployment.all.useQuery(
-		{ applicationId },
+		composeId ? { composeId } : { applicationId: applicationId || "" },
 		{
-			enabled: !!applicationId,
+			enabled: !!applicationId || !!composeId,
 			refetchInterval: 2000,
 		},
 	);
@@ -82,7 +91,10 @@ export const ShowPreviewDeployments = ({ applicationId }: Props) => {
 					<CardDescription>See all the preview deployments</CardDescription>
 				</div>
 				{data?.isPreviewDeploymentsActive && (
-					<ShowPreviewSettings applicationId={applicationId} />
+					<ShowPreviewSettings
+						applicationId={applicationId}
+						composeId={composeId}
+					/>
 				)}
 			</CardHeader>
 			<CardContent className="flex flex-col gap-4">
@@ -176,19 +188,21 @@ export const ShowPreviewDeployments = ({ applicationId }: Props) => {
 															<GithubIcon className="size-4" />
 															Pull Request
 														</Button>
-														<ShowModalLogs
-															appName={deployment.appName}
-															serverId={data?.serverId || ""}
-														>
-															<Button
-																variant="outline"
-																size="sm"
-																className="gap-2"
+														{!composeId && (
+															<ShowModalLogs
+																appName={deployment.appName}
+																serverId={data?.serverId || ""}
 															>
-																<FileText className="size-4" />
-																Logs
-															</Button>
-														</ShowModalLogs>
+																<Button
+																	variant="outline"
+																	size="sm"
+																	className="gap-2"
+																>
+																	<FileText className="size-4" />
+																	Logs
+																</Button>
+															</ShowModalLogs>
+														)}
 
 														<ShowDeploymentsModal
 															id={deployment.previewDeploymentId}
@@ -264,6 +278,7 @@ export const ShowPreviewDeployments = ({ applicationId }: Props) => {
 															<Button
 																variant="ghost"
 																size="sm"
+																aria-label="Edit preview domain"
 																className="gap-2"
 															>
 																<PenSquare className="size-4" />
@@ -282,6 +297,7 @@ export const ShowPreviewDeployments = ({ applicationId }: Props) => {
 																variant="ghost"
 																size="sm"
 																isLoading={isPending}
+																aria-label="Delete preview"
 																className="text-red-600 hover:text-red-700 hover:bg-red-50"
 															>
 																<Trash2 className="size-4" />
@@ -303,7 +319,10 @@ export const ShowPreviewDeployments = ({ applicationId }: Props) => {
 							Preview deployments are disabled for this application, please
 							enable it
 						</span>
-						<ShowPreviewSettings applicationId={applicationId} />
+						<ShowPreviewSettings
+							applicationId={applicationId}
+							composeId={composeId}
+						/>
 					</div>
 				)}
 			</CardContent>

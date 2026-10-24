@@ -2,6 +2,7 @@ import {
 	deployApplication,
 	deployCompose,
 	deployPreviewApplication,
+	deployPreviewCompose,
 	rebuildApplication,
 	rebuildCompose,
 	rebuildPreviewApplication,
@@ -52,6 +53,11 @@ export const processDeploymentJob = async (job: InMemoryJob) => {
 					freshVolumes: job.data.freshVolumes,
 				});
 			}
+		} else if (job.data.applicationType === "compose-preview") {
+			await deployPreviewCompose({
+				...job.data,
+				rebuild: job.data.type === "redeploy",
+			});
 		} else if (job.data.applicationType === "application-preview") {
 			await updatePreviewDeployment(job.data.previewDeploymentId, {
 				previewStatus: "running",

@@ -188,6 +188,7 @@ interface CloneGithubRepository {
 	enableSubmodules: boolean;
 	serverId: string | null;
 	outputPathOverride?: string;
+	pullRequestNumber?: string;
 }
 export const cloneGithubRepository = async ({
 	type = "application",
@@ -233,7 +234,18 @@ export const cloneGithubRepository = async ({
 	const cloneUrl = `${cloneBase.protocol}//${repoclone}`;
 
 	command += `echo ${quote([`Cloning Repo ${repoclone} to ${outputPath}: ✅`])};`;
-	command += `git ${getGitTokenAuthConfig(cloneUrl, token)} clone --branch ${quote([String(branch ?? "")])} --depth 1 ${enableSubmodules ? "--recurse-submodules" : ""} ${quote([String(cloneUrl ?? "")])} ${quote([String(outputPath ?? "")])} --progress;`;
+	if (entity.pullRequestNumber) {
+		if (!/^\d+$/.test(entity.pullRequestNumber))
+			throw new Error("Invalid pull request number");
+		const auth = getGitTokenAuthConfig(cloneUrl, token);
+		command += `git ${auth} clone --no-checkout --depth 1 ${quote([cloneUrl, outputPath])};`;
+		command += `git -C ${quote([outputPath])} ${auth} fetch --depth 1 origin ${quote([`refs/pull/${entity.pullRequestNumber}/head`])};`;
+		command += `git -C ${quote([outputPath])} checkout --detach FETCH_HEAD;`;
+		if (enableSubmodules)
+			command += `git -C ${quote([outputPath])} ${auth} submodule update --init --recursive --depth 1;`;
+	} else {
+		command += `git ${getGitTokenAuthConfig(cloneUrl, token)} clone --branch ${quote([String(branch ?? "")])} --depth 1 ${enableSubmodules ? "--recurse-submodules" : ""} ${quote([String(cloneUrl ?? "")])} ${quote([String(outputPath ?? "")])} --progress;`;
+	}
 
 	return command;
 };

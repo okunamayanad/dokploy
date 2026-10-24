@@ -15,6 +15,8 @@ import { authGithub } from "../utils/providers/github";
 import { removeTraefikConfig } from "../utils/traefik/application";
 import { manageDomain } from "../utils/traefik/domain";
 import { findApplicationById } from "./application";
+import { findComposeById } from "./compose";
+import { removePreviewCompose } from "./compose-preview";
 import { removeDeploymentsByPreviewDeploymentId } from "./deployment";
 import { createDomain } from "./domain";
 import { findGithubById, getIssueComment } from "./github";
@@ -29,6 +31,7 @@ export const findPreviewDeploymentById = async (
 		where: eq(previewDeployments.previewDeploymentId, previewDeploymentId),
 		with: {
 			domain: true,
+			compose: { columns: { composeId: true, serverId: true } },
 			application: {
 				columns: {
 					applicationId: true,
@@ -50,8 +53,22 @@ export const removePreviewDeployment = async (previewDeploymentId: string) => {
 	try {
 		const previewDeployment =
 			await findPreviewDeploymentById(previewDeploymentId);
+		if (previewDeployment.composeId) {
+			// Publish the tombstone before touching Docker or logs. Active builds
+			// must clean up even while the row still exists during deletion.
+			await updatePreviewDeployment(previewDeploymentId, { isDeleting: true });
+			await removePreviewCompose(previewDeployment);
+			await removeDeploymentsByPreviewDeploymentId(
+				previewDeployment,
+				previewDeployment.compose?.serverId ?? null,
+			);
+			await db
+				.delete(previewDeployments)
+				.where(eq(previewDeployments.previewDeploymentId, previewDeploymentId));
+			return previewDeployment;
+		}
 		const application = await findApplicationById(
-			previewDeployment.applicationId,
+			previewDeployment.applicationId!,
 		);
 
 		application.appName = previewDeployment.appName;
@@ -127,10 +144,28 @@ export const findPreviewDeploymentsByApplicationId = async (
 };
 
 export const createPreviewDeployment = async (
-	schema: z.infer<typeof apiCreatePreviewDeployment>,
+	schema: Omit<z.infer<typeof apiCreatePreviewDeployment>, "applicationId"> &
+		(
+			| { applicationId: string; composeId?: never }
+			| { composeId: string; applicationId?: never }
+		),
 ) => {
-	const application = await findApplicationById(schema.applicationId);
-	const appName = `preview-${application.appName}-${generatePassword(6)}`;
+	const application = schema.composeId
+		? await findComposeById(schema.composeId)
+		: await findApplicationById(schema.applicationId!);
+	if (
+		schema.composeId &&
+		(application.sourceType !== "github" ||
+			!("previewServiceName" in application) ||
+			!application.previewServiceName)
+	) {
+		throw new TRPCError({
+			code: "BAD_REQUEST",
+			message:
+				"Compose previews require a GitHub repository and a preview service name",
+		});
+	}
+	const appName = `preview-${schema.composeId ? application.appName.slice(0, 31) : application.appName}-${generatePassword(6)}`;
 
 	const org = await db.query.organization.findFirst({
 		where: eq(organization.id, application.environment.project.organizationId),
@@ -163,7 +198,7 @@ export const createPreviewDeployment = async (
 	const issue = await octokit.rest.issues.createComment({
 		owner: application?.owner || "",
 		repo: application?.repository || "",
-		issue_number: Number.parseInt(schema.pullRequestNumber),
+		issue_number: Number.parseInt(schema.pullRequestNumber, 10),
 		body: `### Dokploy Preview Deployment\n\n${runningComment}`,
 	});
 
@@ -193,11 +228,20 @@ export const createPreviewDeployment = async (
 		customCertResolver: application.previewCustomCertResolver,
 		domainType: "preview",
 		previewDeploymentId: previewDeployment.previewDeploymentId,
+		serviceName:
+			"previewServiceName" in application
+				? application.previewServiceName
+				: undefined,
 	});
 
 	application.appName = appName;
 
-	await manageDomain(application, newDomain);
+	if (!schema.composeId) {
+		await manageDomain(
+			application as Awaited<ReturnType<typeof findApplicationById>>,
+			newDomain,
+		);
+	}
 
 	await db
 		.update(previewDeployments)
@@ -236,6 +280,29 @@ export const findPreviewDeploymentByApplicationId = async (
 	});
 
 	return previewDeploymentResult;
+};
+
+export const findPreviewDeploymentsByComposeId = async (composeId: string) => {
+	return db.query.previewDeployments.findMany({
+		where: eq(previewDeployments.composeId, composeId),
+		orderBy: desc(previewDeployments.createdAt),
+		with: {
+			deployments: { orderBy: desc(deployments.createdAt) },
+			domain: true,
+		},
+	});
+};
+
+export const findPreviewDeploymentByComposeId = async (
+	composeId: string,
+	pullRequestId: string,
+) => {
+	return db.query.previewDeployments.findFirst({
+		where: and(
+			eq(previewDeployments.composeId, composeId),
+			eq(previewDeployments.pullRequestId, pullRequestId),
+		),
+	});
 };
 
 const generateWildcardDomain = async (

@@ -183,7 +183,7 @@ export const deploymentRouter = createTRPCRouter({
 						volumeBackup.libsqlId;
 				} else if (input.type === "previewDeployment") {
 					const preview = await findPreviewDeploymentById(input.id);
-					serviceId = preview.applicationId;
+					serviceId = preview.applicationId || preview.composeId;
 				}
 				if (serviceId) {
 					await checkServicePermissionAndAccess(ctx, serviceId, {

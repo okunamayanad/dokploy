@@ -19,6 +19,7 @@ import { ShowDomains } from "@/components/dashboard/application/domains/show-dom
 import { ShowEnvironment } from "@/components/dashboard/application/environment/show-environment";
 import { ShowIconSettings } from "@/components/dashboard/application/icon/show-icon-settings";
 import { ShowPatches } from "@/components/dashboard/application/patches/show-patches";
+import { ShowPreviewDeployments } from "@/components/dashboard/application/preview-deployments/show-preview-deployments";
 import { ShowSchedules } from "@/components/dashboard/application/schedules/show-schedules";
 import { ShowVolumeBackups } from "@/components/dashboard/application/volume-backups/show-volume-backups";
 import { AddCommandCompose } from "@/components/dashboard/compose/advanced/add-command";
@@ -64,6 +65,7 @@ type TabState =
 	| "settings"
 	| "advanced"
 	| "deployments"
+	| "previews"
 	| "domains"
 	| "containers"
 	| "monitoring"
@@ -248,6 +250,13 @@ const Service = (
 											{permissions?.domain.read && (
 												<TabsTrigger value="domains">Domains</TabsTrigger>
 											)}
+											{permissions?.deployment.read &&
+												data?.sourceType === "github" &&
+												data?.composeType === "docker-compose" && (
+													<TabsTrigger value="previews">
+														Preview Deployments
+													</TabsTrigger>
+												)}
 											{permissions?.deployment.read && (
 												<TabsTrigger value="deployments">
 													Deployments
@@ -425,6 +434,14 @@ const Service = (
 											</div>
 										</TabsContent>
 									)}
+
+									{permissions?.deployment.read &&
+										data?.sourceType === "github" &&
+										data?.composeType === "docker-compose" && (
+											<TabsContent value="previews" className="pt-2.5">
+												<ShowPreviewDeployments composeId={composeId} />
+											</TabsContent>
+										)}
 
 									{permissions?.domain.read && (
 										<TabsContent value="domains">

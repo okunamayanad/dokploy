@@ -647,53 +647,72 @@ function orgScopeCondition(
 		: eq(projects.organizationId, orgId);
 }
 
-// Preview domains inherit access from their parent application, so they're scoped by the same accessedServices check as applications.
+// Preview domains inherit access from their parent service, so they're scoped by the same accessedServices check as applications.
 async function getDomainScopeIdsInOrg(
 	orgId: string,
 	accessedServices: string[] | null,
 ): Promise<{ appIds: string[]; composeIds: string[]; previewIds: string[] }> {
-	const [appRows, composeRows, previewRows] = await Promise.all([
-		db
-			.select({ id: applications.applicationId })
-			.from(applications)
-			.innerJoin(
-				environments,
-				eq(applications.environmentId, environments.environmentId),
-			)
-			.innerJoin(projects, eq(environments.projectId, projects.projectId))
-			.where(
-				orgScopeCondition(orgId, applications.applicationId, accessedServices),
-			),
-		db
-			.select({ id: compose.composeId })
-			.from(compose)
-			.innerJoin(
-				environments,
-				eq(compose.environmentId, environments.environmentId),
-			)
-			.innerJoin(projects, eq(environments.projectId, projects.projectId))
-			.where(orgScopeCondition(orgId, compose.composeId, accessedServices)),
-		db
-			.select({ id: previewDeployments.previewDeploymentId })
-			.from(previewDeployments)
-			.innerJoin(
-				applications,
-				eq(previewDeployments.applicationId, applications.applicationId),
-			)
-			.innerJoin(
-				environments,
-				eq(applications.environmentId, environments.environmentId),
-			)
-			.innerJoin(projects, eq(environments.projectId, projects.projectId))
-			.where(
-				orgScopeCondition(orgId, applications.applicationId, accessedServices),
-			),
-	]);
+	const [appRows, composeRows, previewRows, composePreviewRows] =
+		await Promise.all([
+			db
+				.select({ id: applications.applicationId })
+				.from(applications)
+				.innerJoin(
+					environments,
+					eq(applications.environmentId, environments.environmentId),
+				)
+				.innerJoin(projects, eq(environments.projectId, projects.projectId))
+				.where(
+					orgScopeCondition(
+						orgId,
+						applications.applicationId,
+						accessedServices,
+					),
+				),
+			db
+				.select({ id: compose.composeId })
+				.from(compose)
+				.innerJoin(
+					environments,
+					eq(compose.environmentId, environments.environmentId),
+				)
+				.innerJoin(projects, eq(environments.projectId, projects.projectId))
+				.where(orgScopeCondition(orgId, compose.composeId, accessedServices)),
+			db
+				.select({ id: previewDeployments.previewDeploymentId })
+				.from(previewDeployments)
+				.innerJoin(
+					applications,
+					eq(previewDeployments.applicationId, applications.applicationId),
+				)
+				.innerJoin(
+					environments,
+					eq(applications.environmentId, environments.environmentId),
+				)
+				.innerJoin(projects, eq(environments.projectId, projects.projectId))
+				.where(
+					orgScopeCondition(
+						orgId,
+						applications.applicationId,
+						accessedServices,
+					),
+				),
+			db
+				.select({ id: previewDeployments.previewDeploymentId })
+				.from(previewDeployments)
+				.innerJoin(compose, eq(previewDeployments.composeId, compose.composeId))
+				.innerJoin(
+					environments,
+					eq(compose.environmentId, environments.environmentId),
+				)
+				.innerJoin(projects, eq(environments.projectId, projects.projectId))
+				.where(orgScopeCondition(orgId, compose.composeId, accessedServices)),
+		]);
 
 	return {
 		appIds: appRows.map((r) => r.id),
 		composeIds: composeRows.map((r) => r.id),
-		previewIds: previewRows.map((r) => r.id),
+		previewIds: [...previewRows, ...composePreviewRows].map((r) => r.id),
 	};
 }
 
@@ -739,6 +758,10 @@ export const getAllDomainsForOrganization = async (
 			previewDeployment: {
 				columns: {},
 				with: {
+					compose: {
+						columns: { composeId: true, ...domainOwnerColumns.columns },
+						with: domainOwnerColumns.with,
+					},
 					application: {
 						columns: { applicationId: true, ...domainOwnerColumns.columns },
 						with: domainOwnerColumns.with,
@@ -757,6 +780,11 @@ export const getAllDomainsForOrganization = async (
 				domain.previewDeployment?.application,
 				domain.previewDeployment?.application?.applicationId,
 				"application",
+			],
+			[
+				domain.previewDeployment?.compose,
+				domain.previewDeployment?.compose?.composeId,
+				"compose",
 			],
 		]);
 		const owner = foundOwner ? domainOwnerFrom(...foundOwner) : null;

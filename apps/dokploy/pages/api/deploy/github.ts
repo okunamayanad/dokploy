@@ -4,6 +4,7 @@ import {
 	createSecurityBlockedComment,
 	findGithubById,
 	findPreviewDeploymentByApplicationId,
+	findPreviewDeploymentByComposeId,
 	findPreviewDeploymentsByPullRequestId,
 	IS_CLOUD,
 	removePreviewDeployment,
@@ -356,6 +357,12 @@ export default async function handler(
 			if (previewDeploymentResult.length > 0) {
 				for (const previewDeployment of previewDeploymentResult) {
 					try {
+						myQueue.removeWaiting(
+							(data) =>
+								"previewDeploymentId" in data &&
+								data.previewDeploymentId ===
+									previewDeployment.previewDeploymentId,
+						);
 						await removePreviewDeployment(
 							previewDeployment.previewDeploymentId,
 						);
@@ -413,12 +420,29 @@ export default async function handler(
 				},
 			});
 
+			const composeApps = await db.query.compose.findMany({
+				where: and(
+					eq(compose.sourceType, "github"),
+					eq(compose.composeType, "docker-compose"),
+					eq(compose.repository, repository),
+					eq(compose.branch, branch),
+					eq(compose.isPreviewDeploymentsActive, true),
+					eq(compose.owner, owner),
+					eq(compose.githubId, githubResult.githubId),
+				),
+				with: {
+					previewDeployments: true,
+				},
+			});
+
+			const previewApps = [...apps, ...composeApps];
+
 			// SECURITY: Check collaborator permissions per application setting
-			const secureApps: typeof apps = [];
+			const secureApps: typeof previewApps = [];
 			const blockedApps: string[] = [];
 			let userPermission: string | null = null;
 
-			for (const app of apps) {
+			for (const app of previewApps) {
 				// If the app requires collaborator permissions, verify them
 				if (app.previewRequireCollaboratorPermissions !== false) {
 					try {
@@ -471,7 +495,7 @@ export default async function handler(
 				await createSecurityBlockedComment({
 					owner,
 					repository,
-					prNumber: Number.parseInt(prNumber),
+					prNumber: Number.parseInt(prNumber, 10),
 					prAuthor,
 					permission: userPermission,
 					githubId: githubResult.githubId,
@@ -493,10 +517,19 @@ export default async function handler(
 				}
 
 				const previewDeploymentResult =
-					await findPreviewDeploymentByApplicationId(app.applicationId, prId);
+					"composeId" in app
+						? await findPreviewDeploymentByComposeId(
+								app.composeId,
+								String(prId),
+							)
+						: await findPreviewDeploymentByApplicationId(
+								app.applicationId,
+								String(prId),
+							);
 
 				let previewDeploymentId =
 					previewDeploymentResult?.previewDeploymentId || "";
+				if (previewDeploymentResult?.isDeleting) continue;
 
 				if (!previewDeploymentResult && shouldCreateDeployment) {
 					// The limit only applies to new previews, existing ones must
@@ -509,10 +542,12 @@ export default async function handler(
 						continue;
 					}
 					const previewDeployment = await createPreviewDeployment({
-						applicationId: app.applicationId as string,
+						...("composeId" in app
+							? { composeId: app.composeId }
+							: { applicationId: app.applicationId }),
 						branch: prBranch,
-						pullRequestId: prId,
-						pullRequestNumber: prNumber,
+						pullRequestId: String(prId),
+						pullRequestNumber: String(prNumber),
 						pullRequestTitle: prTitle,
 						pullRequestURL: prURL,
 					});
@@ -520,11 +555,18 @@ export default async function handler(
 				}
 
 				const jobData: DeploymentJob = {
-					applicationId: app.applicationId as string,
+					...("composeId" in app
+						? {
+								composeId: app.composeId,
+								applicationType: "compose-preview" as const,
+							}
+						: {
+								applicationId: app.applicationId,
+								applicationType: "application-preview" as const,
+							}),
 					titleLog: "Preview Deployment",
 					descriptionLog: `Hash: ${deploymentHash}`,
 					type: "deploy",
-					applicationType: "application-preview",
 					server: !!app.serverId,
 					serverId: app.serverId ?? undefined,
 					previewDeploymentId,

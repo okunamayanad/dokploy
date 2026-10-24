@@ -14,6 +14,7 @@ import {
 	findComposeById,
 	findDomainsByComposeId,
 	findEnvironmentById,
+	findPreviewDeploymentsByComposeId,
 	findProjectById,
 	findServerById,
 	getAccessibleServerIds,
@@ -28,6 +29,7 @@ import {
 	removeComposeDirectory,
 	removeDeploymentsByComposeId,
 	removeDomainById,
+	removePreviewDeployment,
 	startCompose,
 	stopCompose,
 	updateCompose,
@@ -197,6 +199,31 @@ export const composeRouter = createTRPCRouter({
 			await checkServicePermissionAndAccess(ctx, input.composeId, {
 				service: ["create"],
 			});
+			if (input.isPreviewDeploymentsActive) {
+				const current = await findComposeById(input.composeId);
+				const settings = { ...current, ...input };
+				if (
+					settings.sourceType !== "github" ||
+					settings.composeType !== "docker-compose" ||
+					!settings.githubId ||
+					!settings.previewServiceName?.trim()
+				) {
+					throw new TRPCError({
+						code: "BAD_REQUEST",
+						message:
+							"Preview deployments require Docker Compose, a GitHub provider, and a preview service name",
+					});
+				}
+				if (
+					settings.previewCertificateType === "custom" &&
+					!settings.previewCustomCertResolver
+				) {
+					throw new TRPCError({
+						code: "BAD_REQUEST",
+						message: "A custom certificate resolver is required",
+					});
+				}
+			}
 			const updated = await updateCompose(input.composeId, input);
 			await audit(ctx, {
 				action: "update",
@@ -247,6 +274,10 @@ export const composeRouter = createTRPCRouter({
 					message: "You are not authorized to delete this compose",
 				});
 			}
+
+			const previews = await findPreviewDeploymentsByComposeId(input.composeId);
+			for (const preview of previews)
+				await removePreviewDeployment(preview.previewDeploymentId);
 
 			const result = await db
 				.delete(composeTable)

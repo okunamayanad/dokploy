@@ -1,7 +1,9 @@
 import {
 	findApplicationById,
+	findComposeById,
 	findPreviewDeploymentById,
 	findPreviewDeploymentsByApplicationId,
+	findPreviewDeploymentsByComposeId,
 	IS_CLOUD,
 	removePreviewDeployment,
 } from "@dokploy/server";
@@ -16,12 +18,23 @@ import { createTRPCRouter, protectedProcedure } from "../trpc";
 
 export const previewDeploymentRouter = createTRPCRouter({
 	all: protectedProcedure
-		.input(apiFindAllByApplication)
+		.input(
+			z.union([
+				apiFindAllByApplication,
+				z.object({ composeId: z.string().min(1) }),
+			]),
+		)
 		.query(async ({ input, ctx }) => {
-			await checkServicePermissionAndAccess(ctx, input.applicationId, {
-				deployment: ["read"],
-			});
-			return await findPreviewDeploymentsByApplicationId(input.applicationId);
+			await checkServicePermissionAndAccess(
+				ctx,
+				"composeId" in input ? input.composeId : input.applicationId,
+				{
+					deployment: ["read"],
+				},
+			);
+			return "composeId" in input
+				? findPreviewDeploymentsByComposeId(input.composeId)
+				: findPreviewDeploymentsByApplicationId(input.applicationId);
 		}),
 
 	one: protectedProcedure
@@ -32,7 +45,7 @@ export const previewDeploymentRouter = createTRPCRouter({
 			);
 			await checkServicePermissionAndAccess(
 				ctx,
-				previewDeployment.applicationId,
+				(previewDeployment.applicationId || previewDeployment.composeId)!,
 				{ deployment: ["read"] },
 			);
 			return previewDeployment;
@@ -46,8 +59,13 @@ export const previewDeploymentRouter = createTRPCRouter({
 			);
 			await checkServicePermissionAndAccess(
 				ctx,
-				previewDeployment.applicationId,
+				(previewDeployment.applicationId || previewDeployment.composeId)!,
 				{ deployment: ["cancel"] },
+			);
+			myQueue.removeWaiting(
+				(data) =>
+					"previewDeploymentId" in data &&
+					data.previewDeploymentId === input.previewDeploymentId,
 			);
 			await removePreviewDeployment(input.previewDeploymentId);
 			await audit(ctx, {
@@ -72,18 +90,25 @@ export const previewDeploymentRouter = createTRPCRouter({
 			);
 			await checkServicePermissionAndAccess(
 				ctx,
-				previewDeployment.applicationId,
+				(previewDeployment.applicationId || previewDeployment.composeId)!,
 				{ deployment: ["create"] },
 			);
-			const application = await findApplicationById(
-				previewDeployment.applicationId,
-			);
+			const application = previewDeployment.composeId
+				? await findComposeById(previewDeployment.composeId)
+				: await findApplicationById(previewDeployment.applicationId!);
 			const jobData: DeploymentJob = {
-				applicationId: previewDeployment.applicationId,
+				...(previewDeployment.composeId
+					? {
+							composeId: previewDeployment.composeId,
+							applicationType: "compose-preview" as const,
+						}
+					: {
+							applicationId: previewDeployment.applicationId!,
+							applicationType: "application-preview" as const,
+						}),
 				titleLog: input.title || "Rebuild Preview Deployment",
 				descriptionLog: input.description || "",
 				type: "redeploy",
-				applicationType: "application-preview",
 				previewDeploymentId: input.previewDeploymentId,
 				server: !!application.serverId,
 				serverId: application.serverId ?? undefined,

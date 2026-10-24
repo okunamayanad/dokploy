@@ -1,6 +1,6 @@
 import { standardSchemaResolver as zodResolver } from "@hookform/resolvers/standard-schema";
 import { HelpCircle, Plus, Settings2, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -50,7 +50,8 @@ const schema = z
 		buildSecrets: z.string(),
 		wildcardDomain: z.string(),
 		port: z.number(),
-		previewLimit: z.number(),
+		previewLimit: z.number().int().min(1),
+		previewServiceName: z.string().optional(),
 		previewLabels: z.array(z.string()).optional(),
 		previewHttps: z.boolean(),
 		previewPath: z.string(),
@@ -74,20 +75,70 @@ const schema = z
 type Schema = z.infer<typeof schema>;
 
 interface Props {
-	applicationId: string;
+	applicationId?: string;
+	composeId?: string;
 }
 
-export const ShowPreviewSettings = ({ applicationId }: Props) => {
+export const ShowPreviewSettings = ({ applicationId, composeId }: Props) => {
 	const [isOpen, setIsOpen] = useState(false);
 	const [isEnabled, setIsEnabled] = useState(false);
-	const { mutateAsync: updateApplication, isPending } =
+	const { mutateAsync: mutateApplication, isPending: applicationPending } =
 		api.application.update.useMutation();
 
-	const { data, refetch } = api.application.one.useQuery({ applicationId });
+	const applicationQuery = api.application.one.useQuery(
+		{ applicationId: applicationId || "" },
+		{ enabled: !!applicationId },
+	);
+	const composeQuery = api.compose.one.useQuery(
+		{ composeId: composeId || "" },
+		{ enabled: !!composeId },
+	);
+	const { mutateAsync: mutateCompose, isPending: composePending } =
+		api.compose.update.useMutation();
+	const data = useMemo(
+		() =>
+			composeId
+				? composeQuery.data && {
+						...composeQuery.data,
+						previewBuildArgs: "",
+						previewBuildSecrets: "",
+						buildType: "",
+					}
+				: applicationQuery.data,
+		[composeId, composeQuery.data, applicationQuery.data],
+	);
+	const refetch = composeId ? composeQuery.refetch : applicationQuery.refetch;
+	const isPending = applicationPending || composePending;
+	const updateApplication = (
+		input: Parameters<typeof mutateApplication>[0] & {
+			previewServiceName?: string;
+		},
+	) =>
+		composeId
+			? mutateCompose({
+					composeId,
+					previewEnv: input.previewEnv,
+					previewServiceName: input.previewServiceName,
+					previewWildcard: input.previewWildcard,
+					previewPort: input.previewPort,
+					previewLabels: input.previewLabels ?? undefined,
+					previewLimit: input.previewLimit,
+					previewHttps: input.previewHttps,
+					previewPath: input.previewPath,
+					previewCertificateType: input.previewCertificateType,
+					previewCustomCertResolver: input.previewCustomCertResolver,
+					previewRequireCollaboratorPermissions:
+						input.previewRequireCollaboratorPermissions,
+					isPreviewDeploymentsActive: input.isPreviewDeploymentsActive,
+				})
+			: mutateApplication(input);
 
 	const form = useForm<Schema>({
 		defaultValues: {
 			env: "",
+			buildArgs: "",
+			buildSecrets: "",
+			previewServiceName: "",
 			wildcardDomain: "*.sslip.io",
 			port: 3000,
 			previewLimit: 3,
@@ -112,6 +163,8 @@ export const ShowPreviewSettings = ({ applicationId }: Props) => {
 		if (data) {
 			form.reset({
 				env: data.previewEnv || "",
+				previewServiceName:
+					"previewServiceName" in data ? data.previewServiceName || "" : "",
 				buildArgs: data.previewBuildArgs || "",
 				buildSecrets: data.previewBuildSecrets || "",
 				wildcardDomain: data.previewWildcard || "*.sslip.io",
@@ -129,14 +182,26 @@ export const ShowPreviewSettings = ({ applicationId }: Props) => {
 	}, [data]);
 
 	const onSubmit = async (formData: Schema) => {
+		if (composeId && !formData.previewServiceName?.trim()) {
+			form.setError("previewServiceName", {
+				message: "Enter the Compose service to expose",
+			});
+			return;
+		}
 		updateApplication({
 			previewEnv: formData.env,
+			...(composeId
+				? {
+						previewServiceName: formData.previewServiceName?.trim(),
+						isPreviewDeploymentsActive: isEnabled,
+					}
+				: {}),
 			previewBuildArgs: formData.buildArgs,
 			previewBuildSecrets: formData.buildSecrets,
 			previewWildcard: formData.wildcardDomain,
 			previewPort: formData.port,
 			previewLabels: formData.previewLabels,
-			applicationId,
+			applicationId: applicationId || "",
 			previewLimit: formData.previewLimit,
 			previewHttps: formData.previewHttps,
 			previewPath: formData.previewPath,
@@ -146,6 +211,7 @@ export const ShowPreviewSettings = ({ applicationId }: Props) => {
 				formData.previewRequireCollaboratorPermissions,
 		})
 			.then(() => {
+				refetch();
 				toast.success("Preview Deployments settings updated");
 			})
 			.catch((error) => {
@@ -184,6 +250,25 @@ export const ShowPreviewSettings = ({ applicationId }: Props) => {
 								id="hook-form-delete-application"
 								className="grid w-full gap-4"
 							>
+								{composeId && (
+									<FormField
+										control={form.control}
+										name="previewServiceName"
+										render={({ field }) => (
+											<FormItem>
+												<FormLabel>Compose Service</FormLabel>
+												<FormControl>
+													<Input placeholder="web" {...field} />
+												</FormControl>
+												<FormDescription>
+													The service name in your Compose file to expose at the
+													preview URL.
+												</FormDescription>
+												<FormMessage />
+											</FormItem>
+										)}
+									/>
+								)}
 								<div className="grid gap-4 lg:grid-cols-2">
 									<FormField
 										control={form.control}
@@ -406,9 +491,13 @@ export const ShowPreviewSettings = ({ applicationId }: Props) => {
 										<Switch
 											checked={isEnabled}
 											onCheckedChange={(checked) => {
+												if (composeId) {
+													setIsEnabled(checked);
+													return;
+												}
 												updateApplication({
 													isPreviewDeploymentsActive: checked,
-													applicationId,
+													applicationId: applicationId || "",
 												})
 													.then(() => {
 														refetch();
@@ -437,13 +526,8 @@ export const ShowPreviewSettings = ({ applicationId }: Props) => {
 														Require Collaborator Permissions
 													</FormLabel>
 													<FormDescription>
-														Require collaborator permissions to preview
-														deployments, valid roles are:
-														<ul>
-															<li>Admin</li>
-															<li>Maintain</li>
-															<li>Write</li>
-														</ul>
+														Require Admin, Maintain, or Write access to the
+														repository to create preview deployments.
 													</FormDescription>
 												</div>
 												<FormControl>
@@ -487,6 +571,7 @@ export const ShowPreviewSettings = ({ applicationId }: Props) => {
 												documentation&nbsp;
 												<a
 													className="text-primary"
+													aria-label="Docker build arguments documentation"
 													href="https://docs.docker.com/build/building/variables/"
 													target="_blank"
 													rel="noopener noreferrer"
@@ -510,6 +595,7 @@ export const ShowPreviewSettings = ({ applicationId }: Props) => {
 												documentation&nbsp;
 												<a
 													className="text-primary"
+													aria-label="Docker build secrets documentation"
 													href="https://docs.docker.com/build/building/secrets/"
 													target="_blank"
 													rel="noopener noreferrer"

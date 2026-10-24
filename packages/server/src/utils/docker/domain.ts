@@ -17,6 +17,11 @@ import { cloneGitlabRepository } from "../providers/gitlab";
 import { getCreateComposeFileCommand } from "../providers/raw";
 import { randomizeDeployableSpecificationFile } from "./collision";
 import { randomizeSpecificationFile } from "./compose";
+import { prepareComposePreview } from "./compose/preview";
+import {
+	getPreviewComposePaths,
+	getPreviewPathValidationCommand,
+} from "./compose/preview-paths";
 import { buildDokployLabels } from "./dokploy-labels";
 import type {
 	ComposeSpecification,
@@ -130,7 +135,14 @@ exit 1;
 
 		const composeString = stringify(composeConverted, { lineWidth: 1000 });
 		const encodedContent = encodeBase64(composeString);
-		return `echo "${encodedContent}" | base64 -d > "${path}";`;
+		const { COMPOSE_PATH } = paths(!!compose.serverId);
+		const validate = compose.previewDeploymentId
+			? getPreviewPathValidationCommand(
+					join(COMPOSE_PATH, compose.appName, "code"),
+					getPreviewComposePaths(composeConverted, path),
+				)
+			: "";
+		return `${validate}echo "${encodedContent}" | base64 -d > "${path}";`;
 	} catch (error) {
 		const message =
 			error instanceof Error ? error.message : String(error ?? "");
@@ -201,6 +213,7 @@ const removeDomainLabels = (
 };
 
 type ComposeWithMetadata = Compose & {
+	previewDeploymentId?: string;
 	environment?: {
 		environmentId: string;
 		name: string;
@@ -289,6 +302,8 @@ export const addDomainToCompose = async (
 	}
 
 	result = (await applyComposeFilePatch(compose)) ?? result;
+	if (compose.previewDeploymentId)
+		result = prepareComposePreview(result, appName);
 
 	if (compose.isolatedDeployment) {
 		const randomized = randomizeDeployableSpecificationFile(

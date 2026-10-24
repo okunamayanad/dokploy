@@ -988,7 +988,11 @@ export const projectRouter = createTRPCRouter({
 								}
 
 								for (const previewDeployment of previewDeployments) {
-									const { previewDeploymentId, ...rest } = previewDeployment;
+									const {
+										previewDeploymentId,
+										composeId: _composeId,
+										...rest
+									} = previewDeployment;
 									await createPreviewDeployment({
 										...rest,
 										applicationId: newApplication.applicationId,

@@ -2,6 +2,16 @@ import { z } from "zod";
 
 export const deployJobSchema = z.discriminatedUnion("applicationType", [
 	z.object({
+		composeId: z.string(),
+		previewDeploymentId: z.string(),
+		titleLog: z.string().optional(),
+		descriptionLog: z.string().optional(),
+		server: z.boolean().optional(),
+		type: z.enum(["deploy", "redeploy"]),
+		applicationType: z.literal("compose-preview"),
+		serverId: z.string().min(1),
+	}),
+	z.object({
 		applicationId: z.string(),
 		titleLog: z.string().optional(),
 		descriptionLog: z.string().optional(),

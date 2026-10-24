@@ -5,6 +5,7 @@ import { type apiCreatePatch, patch } from "@dokploy/server/db/schema";
 import { TRPCError } from "@trpc/server";
 import { and, eq } from "drizzle-orm";
 import type { z } from "zod";
+import { getPreviewPathValidationCommand } from "../utils/docker/compose/preview-paths";
 import { encodeBase64 } from "../utils/docker/utils";
 import { findApplicationById } from "./application";
 import { findComposeById } from "./compose";
@@ -128,6 +129,8 @@ export const markPatchForDeletion = async (
 };
 
 interface ApplyPatchesOptions {
+	appName?: string;
+	confineToCodeDirectory?: boolean;
 	id: string;
 	type: "application" | "compose";
 	serverId: string | null;
@@ -137,6 +140,8 @@ export const generateApplyPatchesCommand = async ({
 	id,
 	type,
 	serverId,
+	appName,
+	confineToCodeDirectory,
 }: ApplyPatchesOptions) => {
 	const entity =
 		type === "application"
@@ -144,7 +149,7 @@ export const generateApplyPatchesCommand = async ({
 			: await findComposeById(id);
 	const { COMPOSE_PATH, APPLICATIONS_PATH } = paths(!!serverId);
 	const basePath = type === "compose" ? COMPOSE_PATH : APPLICATIONS_PATH;
-	const codePath = join(basePath, entity.appName, "code");
+	const codePath = join(basePath, appName ?? entity.appName, "code");
 
 	const resultPatches = await findPatchesByEntityId(id, type);
 	const patches = resultPatches.filter((p) => p.enabled);
@@ -153,7 +158,13 @@ export const generateApplyPatchesCommand = async ({
 		return "";
 	}
 
-	let command = `echo "Applying ${patches.length} patch(es)...";`;
+	let command = confineToCodeDirectory
+		? getPreviewPathValidationCommand(
+				codePath,
+				patches.map((p) => join(codePath, p.filePath)),
+			)
+		: "";
+	command += `echo "Applying ${patches.length} patch(es)...";`;
 
 	for (const p of patches) {
 		const filePath = join(codePath, p.filePath);

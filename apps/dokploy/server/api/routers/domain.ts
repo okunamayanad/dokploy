@@ -114,9 +114,13 @@ export const domainRouter = createTRPCRouter({
 				const preview = await findPreviewDeploymentById(
 					currentDomain.previewDeploymentId,
 				);
-				await checkServicePermissionAndAccess(ctx, preview.applicationId, {
-					domain: ["create"],
-				});
+				await checkServicePermissionAndAccess(
+					ctx,
+					(preview.applicationId || preview.composeId)!,
+					{
+						domain: ["create"],
+					},
+				);
 			}
 
 			const result = await updateDomainById(input.domainId, input);
@@ -134,11 +138,13 @@ export const domainRouter = createTRPCRouter({
 				const previewDeployment = await findPreviewDeploymentById(
 					domain.previewDeploymentId,
 				);
-				const application = await findApplicationById(
-					previewDeployment.applicationId,
-				);
-				application.appName = previewDeployment.appName;
-				await manageDomain(application, domain);
+				if (previewDeployment.applicationId) {
+					const application = await findApplicationById(
+						previewDeployment.applicationId,
+					);
+					application.appName = previewDeployment.appName;
+					await manageDomain(application, domain);
+				}
 			}
 			return result;
 		}),
@@ -155,9 +161,13 @@ export const domainRouter = createTRPCRouter({
 				const preview = await findPreviewDeploymentById(
 					currentDomain.previewDeploymentId,
 				);
-				await checkServicePermissionAndAccess(ctx, preview.applicationId, {
-					domain: ["create"],
-				});
+				await checkServicePermissionAndAccess(
+					ctx,
+					(preview.applicationId || preview.composeId)!,
+					{
+						domain: ["create"],
+					},
+				);
 			}
 
 			const result = await updateDomainById(input.domainId, {
@@ -182,16 +192,24 @@ export const domainRouter = createTRPCRouter({
 				const previewDeployment = await findPreviewDeploymentById(
 					domain.previewDeploymentId,
 				);
-				const application = await findApplicationById(
-					previewDeployment.applicationId,
-				);
-				application.appName = previewDeployment.appName;
-				await manageDomain(application, domain);
+				if (previewDeployment.applicationId) {
+					const application = await findApplicationById(
+						previewDeployment.applicationId,
+					);
+					application.appName = previewDeployment.appName;
+					await manageDomain(application, domain);
+				}
 			}
 
 			return {
 				...result,
-				requiresRedeploy: domain.domainType === "compose",
+				requiresRedeploy:
+					domain.domainType === "compose" ||
+					!!(
+						domain.previewDeploymentId &&
+						(await findPreviewDeploymentById(domain.previewDeploymentId))
+							.composeId
+					),
 			};
 		}),
 	one: protectedProcedure.input(apiFindDomain).query(async ({ input, ctx }) => {
@@ -205,9 +223,13 @@ export const domainRouter = createTRPCRouter({
 			const preview = await findPreviewDeploymentById(
 				domain.previewDeploymentId,
 			);
-			await checkServicePermissionAndAccess(ctx, preview.applicationId, {
-				domain: ["read"],
-			});
+			await checkServicePermissionAndAccess(
+				ctx,
+				(preview.applicationId || preview.composeId)!,
+				{
+					domain: ["read"],
+				},
+			);
 		}
 		return domain;
 	}),
@@ -224,9 +246,13 @@ export const domainRouter = createTRPCRouter({
 				const preview = await findPreviewDeploymentById(
 					domain.previewDeploymentId,
 				);
-				await checkServicePermissionAndAccess(ctx, preview.applicationId, {
-					domain: ["delete"],
-				});
+				await checkServicePermissionAndAccess(
+					ctx,
+					(preview.applicationId || preview.composeId)!,
+					{
+						domain: ["delete"],
+					},
+				);
 			}
 
 			const result = await removeDomainById(input.domainId);

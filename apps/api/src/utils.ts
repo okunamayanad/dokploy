@@ -2,6 +2,7 @@ import {
 	deployApplication,
 	deployCompose,
 	deployPreviewApplication,
+	deployPreviewCompose,
 	rebuildApplication,
 	rebuildCompose,
 	rebuildPreviewApplication,
@@ -50,6 +51,8 @@ export const deploy = async (job: DeployJob) => {
 					});
 				}
 			}
+		} else if (job.applicationType === "compose-preview") {
+			await deployPreviewCompose({ ...job, rebuild: job.type === "redeploy" });
 		} else if (job.applicationType === "application-preview") {
 			await updatePreviewDeployment(job.previewDeploymentId, {
 				previewStatus: "running",
@@ -79,7 +82,10 @@ export const deploy = async (job: DeployJob) => {
 			await updateCompose(job.composeId, {
 				composeStatus: "error",
 			});
-		} else if (job.applicationType === "application-preview") {
+		} else if (
+			job.applicationType === "application-preview" ||
+			job.applicationType === "compose-preview"
+		) {
 			await updatePreviewDeployment(job.previewDeploymentId, {
 				previewStatus: "error",
 			});
