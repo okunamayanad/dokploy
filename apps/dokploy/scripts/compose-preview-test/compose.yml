@@ -1,0 +1,84 @@
+name: dokploy-compose-preview-test
+
+services:
+  engine:
+    image: docker:28-dind
+    privileged: true
+    environment:
+      DOCKER_TLS_CERTDIR: ""
+    command: ["dockerd", "--host=unix:///var/run/docker.sock"]
+    volumes:
+      - engine-data:/var/lib/docker
+      - engine-socket:/var/run
+      - app-data:/workspace/apps/dokploy/.docker
+    ports:
+      - "127.0.0.1:13080:80"
+    healthcheck:
+      test: ["CMD", "docker", "info"]
+      interval: 3s
+      timeout: 5s
+      retries: 40
+
+  database:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: preview_test
+      POSTGRES_PASSWORD: isolated-preview-test
+      POSTGRES_DB: preview_test
+    volumes:
+      - database-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U preview_test -d preview_test"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+
+  app:
+    build:
+      context: ../../../..
+      dockerfile: apps/dokploy/scripts/compose-preview-test/Dockerfile
+    init: true
+    extra_hosts:
+      - "github.fixture.test:127.0.0.1"
+    environment:
+      DATABASE_URL: postgres://preview_test:isolated-preview-test@database:5432/preview_test
+      PORT: "3000"
+      NODE_ENV: development
+      BETTER_AUTH_SECRET_FILE: /workspace/apps/dokploy/.docker/test-auth-secret
+    command:
+      - sh
+      - -ec
+      - |
+        mkdir -p .docker
+        if [ ! -f .docker/test-auth-secret ]; then openssl rand -hex 32 > .docker/test-auth-secret; fi
+        node scripts/compose-preview-test/fixture.mjs &
+        until [ -f .docker/fixture/cert.pem ]; do sleep 1; done
+        export NODE_EXTRA_CA_CERTS=/workspace/apps/dokploy/.docker/fixture/cert.pem
+        export GIT_SSL_CAINFO=$$NODE_EXTRA_CA_CERTS
+        until curl --cacert "$$NODE_EXTRA_CA_CERTS" -fsS https://github.fixture.test:14443/health; do sleep 1; done
+        pnpm exec tsx migration.ts
+        pnpm exec tsx scripts/compose-preview-test/bootstrap.ts
+        exec pnpm exec tsx server/server.ts
+    volumes:
+      - engine-socket:/var/run
+      - app-data:/workspace/apps/dokploy/.docker
+      - .:/workspace/apps/dokploy/scripts/compose-preview-test:ro
+    ports:
+      - "127.0.0.1:13000:3000"
+    depends_on:
+      engine:
+        condition: service_healthy
+      database:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:3000/api/trpc/settings.health"]
+      interval: 10s
+      timeout: 30s
+      start_period: 90s
+      retries: 30
+
+volumes:
+  engine-data:
+  engine-socket:
+  app-data:
+  database-data:

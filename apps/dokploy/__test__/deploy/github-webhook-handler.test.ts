@@ -14,6 +14,10 @@ const mocks = vi.hoisted(() => ({
 	shouldDeploy: vi.fn(),
 	createPreviewDeployment: vi.fn(),
 	findPreviewDeploymentByApplicationId: vi.fn(),
+	findPreviewDeploymentByComposeId: vi.fn(),
+	findPreviewDeploymentsByPullRequestId: vi.fn(),
+	removePreviewDeployment: vi.fn(),
+	checkUserRepositoryPermissions: vi.fn(),
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -34,6 +38,8 @@ vi.mock("@/server/db/schema", () => ({
 	},
 	compose: {
 		sourceType: "compose.sourceType",
+		composeType: "compose.composeType",
+		isPreviewDeploymentsActive: "compose.isPreviewDeploymentsActive",
 		autoDeploy: "compose.autoDeploy",
 		triggerType: "compose.triggerType",
 		branch: "compose.branch",
@@ -65,15 +71,17 @@ vi.mock("@dokploy/server/db", () => ({
 vi.mock("@dokploy/server", () => ({
 	IS_CLOUD: false,
 	shouldDeploy: mocks.shouldDeploy,
-	checkUserRepositoryPermissions: vi.fn(),
+	checkUserRepositoryPermissions: mocks.checkUserRepositoryPermissions,
 	createPreviewDeployment: mocks.createPreviewDeployment,
 	createSecurityBlockedComment: vi.fn(),
 	findGithubById: vi.fn(),
 	findPreviewDeploymentByApplicationId:
 		mocks.findPreviewDeploymentByApplicationId,
-	findPreviewDeploymentsByPullRequestId: vi.fn(),
+	findPreviewDeploymentByComposeId: mocks.findPreviewDeploymentByComposeId,
+	findPreviewDeploymentsByPullRequestId:
+		mocks.findPreviewDeploymentsByPullRequestId,
 	getBitbucketHeaders: vi.fn(() => ({})),
-	removePreviewDeployment: vi.fn(),
+	removePreviewDeployment: mocks.removePreviewDeployment,
 }));
 
 vi.mock("@octokit/webhooks", () => ({
@@ -87,6 +95,7 @@ vi.mock("@octokit/webhooks", () => ({
 vi.mock("@/server/queues/queueSetup", () => ({
 	myQueue: {
 		add: mocks.queueAdd,
+		removeWaiting: vi.fn(),
 	},
 }));
 
@@ -431,6 +440,8 @@ describe("GitHub app webhook preview deployments", () => {
 			previewDeploymentId: "new-preview-id",
 		});
 		mocks.findPreviewDeploymentByApplicationId.mockResolvedValue(undefined);
+		mocks.findPreviewDeploymentByComposeId.mockResolvedValue(undefined);
+		mocks.composeFindMany.mockResolvedValue([]);
 	});
 
 	it("redeploys an existing preview even when the limit is reached", async () => {
@@ -495,8 +506,8 @@ describe("GitHub app webhook preview deployments", () => {
 			expect.objectContaining({
 				applicationId: "application-id",
 				branch: "feature",
-				pullRequestId: 987,
-				pullRequestNumber: 42,
+				pullRequestId: "987",
+				pullRequestNumber: "42",
 			}),
 		);
 		expect(mocks.queueAdd).toHaveBeenCalledWith(
@@ -513,5 +524,114 @@ describe("GitHub app webhook preview deployments", () => {
 			}),
 		);
 		expect(res.status).toHaveBeenCalledWith(200);
+	});
+	const createCompose = (overrides: Record<string, unknown> = {}) => {
+		const { applicationId, ...settings } = createApplication();
+		return { ...settings, composeId: "compose-id", ...overrides };
+	};
+
+	it("creates a Docker Compose preview and queues the correct job", async () => {
+		mocks.applicationsFindMany.mockResolvedValue([]);
+		mocks.composeFindMany.mockResolvedValue([createCompose()]);
+		await handler(createPullRequestRequest("opened"), createResponse());
+		expect(mocks.createPreviewDeployment).toHaveBeenCalledWith(
+			expect.objectContaining({
+				composeId: "compose-id",
+				pullRequestNumber: "42",
+				branch: "feature",
+			}),
+		);
+		expect(mocks.queueAdd).toHaveBeenCalledWith(
+			"deployments",
+			expect.objectContaining({
+				composeId: "compose-id",
+				applicationType: "compose-preview",
+				previewDeploymentId: "new-preview-id",
+			}),
+			expect.anything(),
+		);
+		expect(mocks.createPreviewDeployment.mock.calls[0]?.[0]).not.toHaveProperty(
+			"applicationId",
+		);
+		const where = mocks.composeFindMany.mock.calls[0]?.[0].where;
+		expect(getConditionValue(where, "compose.composeType")).toBe(
+			"docker-compose",
+		);
+		expect(getConditionValue(where, "compose.githubId")).toBe(
+			"github-provider-id",
+		);
+	});
+
+	it("updates an existing Compose preview at its limit", async () => {
+		mocks.applicationsFindMany.mockResolvedValue([]);
+		mocks.composeFindMany.mockResolvedValue([
+			createCompose({
+				previewLimit: 1,
+				previewDeployments: createPreviewDeployments(1),
+			}),
+		]);
+		mocks.findPreviewDeploymentByComposeId.mockResolvedValue({
+			previewDeploymentId: "existing-preview",
+		});
+		await handler(createPullRequestRequest("synchronize"), createResponse());
+		expect(mocks.createPreviewDeployment).not.toHaveBeenCalled();
+		expect(mocks.queueAdd).toHaveBeenCalledWith(
+			"deployments",
+			expect.objectContaining({
+				previewDeploymentId: "existing-preview",
+				applicationType: "compose-preview",
+			}),
+			expect.anything(),
+		);
+	});
+
+	it("does not exceed the Compose preview limit or create on unlabeled events", async () => {
+		mocks.applicationsFindMany.mockResolvedValue([]);
+		mocks.composeFindMany.mockResolvedValue([
+			createCompose({
+				previewLimit: 1,
+				previewDeployments: createPreviewDeployments(1),
+			}),
+		]);
+		await handler(createPullRequestRequest("opened"), createResponse());
+		expect(mocks.queueAdd).not.toHaveBeenCalled();
+		mocks.composeFindMany.mockResolvedValue([createCompose()]);
+		await handler(createPullRequestRequest("unlabeled"), createResponse());
+		expect(mocks.createPreviewDeployment).not.toHaveBeenCalled();
+	});
+
+	it("applies Compose label filters", async () => {
+		mocks.applicationsFindMany.mockResolvedValue([]);
+		mocks.composeFindMany.mockResolvedValue([
+			createCompose({ previewLabels: ["preview"] }),
+		]);
+		await handler(createPullRequestRequest("opened"), createResponse());
+		expect(mocks.createPreviewDeployment).not.toHaveBeenCalled();
+	});
+
+	it("fails closed when Compose collaborator authorization is denied", async () => {
+		mocks.applicationsFindMany.mockResolvedValue([]);
+		mocks.composeFindMany.mockResolvedValue([
+			createCompose({ previewRequireCollaboratorPermissions: true }),
+		]);
+		mocks.checkUserRepositoryPermissions.mockResolvedValue({
+			hasWriteAccess: false,
+			permission: "read",
+		});
+		await handler(createPullRequestRequest("opened"), createResponse());
+		expect(mocks.createPreviewDeployment).not.toHaveBeenCalled();
+		expect(mocks.queueAdd).not.toHaveBeenCalled();
+	});
+
+	it("removes previews when a pull request closes", async () => {
+		mocks.findPreviewDeploymentsByPullRequestId.mockResolvedValue([
+			{ previewDeploymentId: "compose-preview" },
+			{ previewDeploymentId: "app-preview" },
+		]);
+		await handler(createPullRequestRequest("closed"), createResponse());
+		expect(mocks.removePreviewDeployment).toHaveBeenCalledWith(
+			"compose-preview",
+		);
+		expect(mocks.removePreviewDeployment).toHaveBeenCalledWith("app-preview");
 	});
 });

@@ -93,4 +93,22 @@ describe("cloneGithubRepository host", () => {
 
 		expect(command).toContain("https://github.com/acme/web.git");
 	});
+	it("fetches the PR head ref for forks instead of a same-named base branch", async () => {
+		mockFindGithubById.mockResolvedValue(provider("https://github.com"));
+		const command = await cloneGithubRepository({
+			appName: "preview-web",
+			owner: "acme",
+			repository: "web",
+			branch: "feature",
+			githubId: "gh-1",
+			enableSubmodules: true,
+			serverId: null,
+			type: "compose",
+			pullRequestNumber: "42",
+		});
+		expect(command).toContain("refs/pull/42/head");
+		expect(command).toContain("checkout --detach FETCH_HEAD");
+		expect(command).toContain("submodule update --init --recursive");
+		expect(command).not.toContain("--branch feature");
+	});
 });
