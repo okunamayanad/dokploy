@@ -3,6 +3,7 @@ import {
 	fetchPersonalUpdate,
 	PERSONAL_IMAGE,
 	PERSONAL_MANIFEST_URL,
+	PERSONAL_RELEASE_API_URL,
 	parsePersonalVersion,
 } from "@dokploy/server/utils/personal-release";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -10,6 +11,57 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 afterEach(() => vi.unstubAllGlobals());
 
 describe("personal releases", () => {
+	it("falls back to the published release API when the asset CDN is unreachable", async () => {
+		const image = `${PERSONAL_IMAGE}:v1.0.1.0@sha256:${"a".repeat(64)}`;
+		const fetch = vi
+			.fn()
+			.mockRejectedValueOnce(new Error("CDN timeout"))
+			.mockResolvedValueOnce(
+				new Response(
+					JSON.stringify({
+						tag_name: "v1.0.1.0",
+						draft: false,
+						prerelease: false,
+						body: `Image: \`${image}\``,
+					}),
+				),
+			);
+		vi.stubGlobal("fetch", fetch);
+		expect(await fetchPersonalUpdate("v1.0.0.9")).toEqual({
+			latestVersion: "v1.0.1.0",
+			updateAvailable: true,
+			image,
+		});
+		expect(fetch).toHaveBeenLastCalledWith(
+			PERSONAL_RELEASE_API_URL,
+			expect.any(Object),
+		);
+	});
+	it.each([
+		{ draft: true, prerelease: false, body: "" },
+		{ draft: false, prerelease: true, body: "" },
+		{
+			draft: false,
+			prerelease: false,
+			body: "Image: `dokploy/dokploy:latest`",
+		},
+		{
+			draft: false,
+			prerelease: false,
+			body: `Image: \`${PERSONAL_IMAGE}:v1.0.1.0\``,
+		},
+	])("rejects an invalid API fallback release %j", async (published) => {
+		vi.stubGlobal(
+			"fetch",
+			vi
+				.fn()
+				.mockRejectedValueOnce(new Error("CDN timeout"))
+				.mockResolvedValueOnce(
+					new Response(JSON.stringify({ tag_name: "v1.0.1.0", ...published })),
+				),
+		);
+		await expect(fetchPersonalUpdate("v1.0.0.0")).rejects.toThrow();
+	});
 	it.each([
 		["v1.0.0.2", "v1.0.0.1", 1],
 		["v1.0.1.0", "v1.0.0.99", 1],
@@ -72,16 +124,14 @@ describe("personal releases", () => {
 	it("does not downgrade", async () => {
 		vi.stubGlobal(
 			"fetch",
-			vi
-				.fn()
-				.mockResolvedValue(
-					new Response(
-						JSON.stringify({
-							version: "v1.0.0.1",
-							image: `${PERSONAL_IMAGE}:v1.0.0.1@sha256:${"a".repeat(64)}`,
-						}),
-					),
+			vi.fn().mockResolvedValue(
+				new Response(
+					JSON.stringify({
+						version: "v1.0.0.1",
+						image: `${PERSONAL_IMAGE}:v1.0.0.1@sha256:${"a".repeat(64)}`,
+					}),
 				),
+			),
 		);
 		expect((await fetchPersonalUpdate("v1.0.1.0")).updateAvailable).toBe(false);
 	});
