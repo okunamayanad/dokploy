@@ -5,7 +5,8 @@ from pathlib import Path
 
 repository = os.environ['GITHUB_REPOSITORY']
 version = os.environ['VERSION']
-published = json.loads(subprocess.check_output(['gh', 'api', f'repos/{repository}/releases/tags/{version}']))
+releases = json.loads(subprocess.check_output(['gh', 'api', f'repos/{repository}/releases?per_page=100']))
+published = next(item for item in releases if item['tag_name'] == version)
 notes = Path('release-notes.md').read_text()
 manifest = json.loads(Path('release.json').read_text())
 if notes.split('`').count(manifest['image']) != 1:
