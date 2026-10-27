@@ -78,6 +78,7 @@ jobs:
 
   build:
     needs: verify
+    timeout-minutes: 35
     if: needs.verify.outputs.publish == 'true'
     permissions:
       contents: read

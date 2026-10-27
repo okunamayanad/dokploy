@@ -102,6 +102,10 @@
 			"ssh2",
 			"tree-sitter",
 			"tree-sitter-json"
-		]
+		],
+		"patchedDependencies": {
+			"tree-sitter@0.21.1": "patches/tree-sitter@0.21.1.patch",
+			"tree-sitter@0.22.4": "patches/tree-sitter@0.22.4.patch"
+		}
 	}
 }
