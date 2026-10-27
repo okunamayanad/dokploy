@@ -210,7 +210,8 @@ export const createDeploymentPreview = async (
 	const previewDeployment = await findPreviewDeploymentById(
 		deployment.previewDeploymentId,
 	);
-const serverId =
+	const buildServerId = previewDeployment.application?.buildServerId;
+	const serverId =
 		previewDeployment.application?.buildServerId ||
 		previewDeployment.application?.serverId ||
 		previewDeployment.compose?.serverId ||
@@ -218,7 +219,9 @@ const serverId =
 	await removeLastTenDeployments(
 		deployment.previewDeploymentId,
 		"previewDeployment",
-		previewDeployment.application?.serverId || previewDeployment.compose?.serverId || null,
+		previewDeployment.application?.serverId ||
+			previewDeployment.compose?.serverId ||
+			null,
 	);
 	try {
 		const appName = `${previewDeployment.appName}`;

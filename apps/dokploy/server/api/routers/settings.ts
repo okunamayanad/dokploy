@@ -53,6 +53,10 @@ import {
 } from "@dokploy/server";
 import { db } from "@dokploy/server/db";
 import { checkPermission } from "@dokploy/server/services/permission";
+import {
+	PERSONAL_IMAGE,
+	PERSONAL_VERSION,
+} from "@dokploy/server/utils/personal-release";
 import { generateOpenApiDocument } from "@dokploy/trpc-openapi";
 import { TRPCError } from "@trpc/server";
 import { eq, sql } from "drizzle-orm";
@@ -76,7 +80,6 @@ import {
 } from "@/server/db/schema";
 import { cleanAllDeploymentQueue } from "@/server/queues/queueSetup";
 import { removeJob, schedule } from "@/server/utils/backup";
-import packageInfo from "../../../package.json";
 import { appRouter } from "../root";
 import {
 	adminProcedure,
@@ -142,7 +145,7 @@ export const settingsRouter = createTRPCRouter({
 		if (IS_CLOUD) {
 			return true;
 		}
-		await reloadDockerResource("dokploy", undefined, packageInfo.version);
+		await reloadDockerResource("dokploy", undefined, PERSONAL_VERSION);
 		await audit(ctx, {
 			action: "reload",
 			resourceType: "settings",
@@ -597,7 +600,7 @@ export const settingsRouter = createTRPCRouter({
 			return DEFAULT_UPDATE_DATA;
 		}
 
-		return await getUpdateData(packageInfo.version);
+		return await getUpdateData(PERSONAL_VERSION);
 	}),
 	updateServer: adminProcedure.mutation(async ({ ctx }) => {
 		if (IS_CLOUD) {
@@ -613,14 +616,14 @@ export const settingsRouter = createTRPCRouter({
 			});
 		}
 
-		const data = await getUpdateData(packageInfo.version);
-		if (data.updateAvailable) {
+		const data = await getUpdateData(PERSONAL_VERSION);
+		if (data.updateAvailable && data.image?.startsWith(`${PERSONAL_IMAGE}:`)) {
 			void spawnAsync("docker", [
 				"service",
 				"update",
 				"--force",
 				"--image",
-				`dokploy/dokploy:${data.latestVersion}`,
+				data.image!,
 				"dokploy",
 			]);
 			await audit(ctx, {
@@ -634,7 +637,7 @@ export const settingsRouter = createTRPCRouter({
 	}),
 
 	getDokployVersion: protectedProcedure.query(() => {
-		return packageInfo.version;
+		return PERSONAL_VERSION;
 	}),
 	getReleaseTag: protectedProcedure.query(() => {
 		return getDokployImageTag();
@@ -732,7 +735,7 @@ export const settingsRouter = createTRPCRouter({
 			const url = `${protocol}://${ctx.req.headers.host}/api`;
 			const openApiDocument = generateOpenApiDocument(appRouter, {
 				title: "tRPC OpenAPI",
-				version: packageInfo.version,
+				version: PERSONAL_VERSION,
 				baseUrl: url,
 				docsUrl: `${url}/settings.getOpenApiDocument`,
 				tags: [
@@ -785,7 +788,7 @@ export const settingsRouter = createTRPCRouter({
 			openApiDocument.info = {
 				title: "Dokploy API",
 				description: "Endpoints for dokploy",
-				version: packageInfo.version,
+				version: PERSONAL_VERSION,
 			};
 
 			// Add security schemes configuration

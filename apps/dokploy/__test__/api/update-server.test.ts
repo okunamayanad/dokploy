@@ -108,7 +108,9 @@ describe("settings.updateServer", () => {
 	it("fails for a standalone container where docker service update cannot run", async () => {
 		mockGetDockerResourceType.mockResolvedValue("standalone");
 		mockGetUpdateData.mockResolvedValue({
-			latestVersion: "v9.9.9",
+			latestVersion: "v9.9.9.1",
+			image:
+				"ghcr.io/okunamayanad/dokploy:v9.9.9.1@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 			updateAvailable: true,
 		});
 
@@ -123,7 +125,9 @@ describe("settings.updateServer", () => {
 	it("does not report a fake success when the update command cannot run", async () => {
 		mockGetDockerResourceType.mockResolvedValue("unknown");
 		mockGetUpdateData.mockResolvedValue({
-			latestVersion: "v9.9.9",
+			latestVersion: "v9.9.9.1",
+			image:
+				"ghcr.io/okunamayanad/dokploy:v9.9.9.1@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 			updateAvailable: true,
 		});
 
@@ -134,7 +138,9 @@ describe("settings.updateServer", () => {
 	it("triggers the docker service update when the service exists", async () => {
 		mockGetDockerResourceType.mockResolvedValue("service");
 		mockGetUpdateData.mockResolvedValue({
-			latestVersion: "v9.9.9",
+			latestVersion: "v9.9.9.1",
+			image:
+				"ghcr.io/okunamayanad/dokploy:v9.9.9.1@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 			updateAvailable: true,
 		});
 		mockSpawnAsync.mockResolvedValue({ stdout: "", stderr: null });
@@ -143,7 +149,11 @@ describe("settings.updateServer", () => {
 
 		expect(mockSpawnAsync).toHaveBeenCalledWith(
 			"docker",
-			expect.arrayContaining(["service", "update", "dokploy/dokploy:v9.9.9"]),
+			expect.arrayContaining([
+				"service",
+				"update",
+				"ghcr.io/okunamayanad/dokploy:v9.9.9.1@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			]),
 		);
 	});
 });

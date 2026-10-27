@@ -1,0 +1,29 @@
+name: Personal upstream sync
+
+on:
+  schedule:
+    - cron: '23 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+concurrency:
+  group: personal-upstream-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: github.repository == 'okunamayanad/dokploy'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: personal
+          fetch-depth: 0
+      - name: Prepare upstream release integration
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/personal/sync-upstream.sh

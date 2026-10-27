@@ -17,6 +17,7 @@ permissions:
 
 jobs:
   generate-and-commit:
+    if: github.repository == 'Dokploy/dokploy'
     name: Generate OpenAPI and commit to Dokploy repo
     runs-on: ubuntu-latest
     steps:

@@ -1,0 +1,194 @@
+name: Personal release
+
+on:
+  push:
+    branches: [personal, 'sync/upstream-*']
+  pull_request:
+    branches: [personal]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: personal-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: personal_upgrade
+        ports: ['5432:5432']
+        options: --health-cmd 'pg_isready -U test' --health-interval 5s --health-retries 20
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      publish: ${{ steps.release.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.22.1
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Check release metadata
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node --input-type=module <<'JS'
+          import { readFileSync, appendFileSync } from 'node:fs';
+          const r = JSON.parse(readFileSync('packages/server/src/personal-release.json'));
+          if (!/^v\d+\.\d+\.\d+\.\d+$/.test(r.version) || !r.version.startsWith(`${r.upstreamVersion}.`)) throw new Error('Invalid release metadata');
+          const packageVersion = JSON.parse(readFileSync('apps/dokploy/package.json')).version;
+          if (packageVersion !== r.upstreamVersion) throw new Error('Package and upstream versions differ');
+          appendFileSync(process.env.GITHUB_OUTPUT, `version=${r.version}\n`);
+          JS
+          VERSION=$(node scripts/personal/version.mjs show)
+          if [ "$GITHUB_REF" = refs/heads/personal ] && ! gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo 'publish=true' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Build server and check types
+        run: |
+          pnpm server:build
+          pnpm typecheck
+      - name: Regression tests
+        run: |
+          pnpm --filter=dokploy test --run __test__/compose __test__/deploy/github-webhook-handler.test.ts __test__/deploy/preview-build-server.test.ts __test__/git-provider/github-clone-host.test.ts __test__/queues/in-memory-queue.test.ts __test__/utils/personal-release.test.ts __test__/api/update-server.test.ts
+      - name: Real upstream to personal PostgreSQL upgrade
+        env:
+          DATABASE_URL: postgres://test:test@localhost:5432/personal_upgrade
+        run: pnpm exec tsx apps/dokploy/scripts/personal/check-migrations.ts
+      - name: Installer syntax and version guard
+        run: |
+          bash -n scripts/personal/install.sh
+          if DOKPLOY_VERSION=latest bash scripts/personal/install.sh update; then exit 1; fi
+
+  build:
+    needs: verify
+    if: needs.verify.outputs.publish == 'true'
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            platform: linux/amd64
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            platform: linux/arm64
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Prepare production environment
+        run: |
+          cp apps/dokploy/.env.production.example .env.production
+          cp apps/dokploy/.env.production.example apps/dokploy/.env.production
+      - uses: docker/build-push-action@v7
+        id: build
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          push: true
+          tags: ghcr.io/okunamayanad/dokploy:build-${{ github.sha }}-${{ matrix.arch }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/okunamayanad/dokploy
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ needs.verify.outputs.version }}
+          cache-from: type=gha,scope=personal-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=personal-${{ matrix.arch }}
+      - name: Record digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: mkdir -p digests && printf '%s' "$DIGEST" > digests/${{ matrix.arch }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.arch }}
+          path: digests/*
+
+  publish:
+    needs: [verify, build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      packages: write
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: smoke
+        ports: ['5432:5432']
+        options: --health-cmd 'pg_isready -U test' --health-interval 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: digest-*
+          merge-multiple: true
+          path: digests
+      - name: Publish multi-platform image
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          docker buildx imagetools create -t "ghcr.io/okunamayanad/dokploy:$VERSION" \
+            "ghcr.io/okunamayanad/dokploy@$(cat digests/amd64)" \
+            "ghcr.io/okunamayanad/dokploy@$(cat digests/arm64)"
+          docker buildx imagetools inspect "ghcr.io/okunamayanad/dokploy:$VERSION" --format '{{json .Manifest}}' > image.json
+      - name: Verify packaged migrations and application health
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          docker swarm init
+          docker network create --driver overlay dokploy-network
+          docker run --rm --network host -e DATABASE_URL=postgres://test:test@localhost:5432/smoke \
+            "ghcr.io/okunamayanad/dokploy:$VERSION" node dist/migration.mjs
+          docker run --rm --network host -e DATABASE_URL=postgres://test:test@localhost:5432/smoke \
+            "ghcr.io/okunamayanad/dokploy:$VERSION" node dist/migration.mjs
+          docker run -d --name personal-smoke --network host \
+            -e DATABASE_URL=postgres://test:test@localhost:5432/smoke \
+            -e RELEASE_TAG=personal \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            "ghcr.io/okunamayanad/dokploy:$VERSION"
+          timeout 180 bash -c 'until curl -fsS http://localhost:3000/api/trpc/settings.health; do sleep 3; done'
+      - name: Diagnostics
+        if: failure()
+        run: docker logs personal-smoke 2>&1 || true
+      - name: Prepare and publish release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          python3 scripts/personal/release-assets.py
+          gh release create "$VERSION" release.json install.sh SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$VERSION" \
+            --notes-file release-notes.md --latest

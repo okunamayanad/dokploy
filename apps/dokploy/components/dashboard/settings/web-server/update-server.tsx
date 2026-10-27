@@ -233,7 +233,7 @@ export const UpdateServer = ({
 								<h3 className="text-lg font-medium">Checking for updates...</h3>
 								<p className="text text-muted-foreground">
 									Please wait while we pull the latest version information from
-									Docker Hub.
+									your personal release channel.
 								</p>
 							</div>
 						</div>
@@ -247,7 +247,7 @@ export const UpdateServer = ({
 							<div className="text-[#5B9DFF]">
 								We recommend reviewing the{" "}
 								<Link
-									href="https://github.com/Dokploy/dokploy/releases"
+									href="https://github.com/okunamayanad/dokploy/releases"
 									target="_blank"
 									className="text-white underline hover:text-zinc-200"
 								>

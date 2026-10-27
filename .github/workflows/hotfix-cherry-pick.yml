@@ -10,7 +10,7 @@ concurrency:
 
 jobs:
   cherry-pick:
-    if: github.event.pull_request.merged == true && contains(github.event.pull_request.labels.*.name, 'hotfix')
+    if: github.repository == 'Dokploy/dokploy' && (github.event.pull_request.merged == true && contains(github.event.pull_request.labels.*.name, 'hotfix'))
     runs-on: ubuntu-latest
     permissions:
       contents: write
