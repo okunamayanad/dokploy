@@ -11,6 +11,10 @@ WORKDIR /usr/src/app
 
 RUN apt-get update && apt-get install -y python3 make g++ git python3-pip pkg-config libsecret-1-dev && rm -rf /var/lib/apt/lists/*
 
+# Use the headers shipped with this Node image instead of parallel node-gyp downloads.
+ENV npm_config_nodedir=/usr/local
+RUN test -f /usr/local/include/node/node.h
+
 # Install dependencies
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
 
