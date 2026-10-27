@@ -5,6 +5,7 @@ UPSTREAM=$(gh release view --repo Dokploy/dokploy --json tagName --jq .tagName)
 [[ "$UPSTREAM" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Unsupported upstream release'; exit 1; }
 CURRENT=$(node -p "require('./packages/server/src/personal-release.json').upstreamVersion")
 [ "$UPSTREAM" != "$CURRENT" ] || exit 0
+[ "$(printf '%s\n%s\n' "$CURRENT" "$UPSTREAM" | sort -V | tail -n1)" = "$UPSTREAM" ] || exit 0
 REPOSITORY=${GITHUB_REPOSITORY:-okunamayanad/dokploy}
 BRANCH="sync/upstream-$UPSTREAM"
 if [ -n "$(gh pr list --repo "$REPOSITORY" --base personal --head "$BRANCH" --state all --json number --jq '.[0].number // empty')" ]; then

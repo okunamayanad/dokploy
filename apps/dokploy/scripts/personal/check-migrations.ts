@@ -10,24 +10,39 @@ import { migratePersonal } from "../../server/db/personal-migration";
 const sql = postgres(process.env.DATABASE_URL!, { max: 1 });
 const db = drizzle(sql);
 const root = mkdtempSync(join(tmpdir(), "dokploy-upstream-"));
-const upstream = JSON.parse(
+const release = JSON.parse(
 	readFileSync("packages/server/src/personal-release.json", "utf8"),
-).upstreamCommit;
-const journalPath = "apps/dokploy/drizzle/meta/_journal.json";
-const journal = execFileSync("git", ["show", `${upstream}:${journalPath}`]);
-mkdirSync(join(root, "meta"));
-writeFileSync(join(root, "meta/_journal.json"), journal);
-for (const entry of JSON.parse(journal.toString()).entries) {
-	writeFileSync(
-		join(root, `${entry.tag}.sql`),
-		execFileSync("git", [
-			"show",
-			`${upstream}:apps/dokploy/drizzle/${entry.tag}.sql`,
-		]),
-	);
-}
+);
+const seedVersion =
+	process.env.PREVIOUS_PERSONAL_RELEASE || release.upstreamCommit;
+const extract = (folder: string) => {
+	const destination = join(root, folder);
+	const source = `apps/dokploy/${folder}`;
+	const journal = execFileSync("git", [
+		"show",
+		`${seedVersion}:${source}/meta/_journal.json`,
+	]);
+	mkdirSync(join(destination, "meta"), { recursive: true });
+	writeFileSync(join(destination, "meta/_journal.json"), journal);
+	for (const entry of JSON.parse(journal.toString()).entries) {
+		writeFileSync(
+			join(destination, `${entry.tag}.sql`),
+			execFileSync("git", [
+				"show",
+				`${seedVersion}:${source}/${entry.tag}.sql`,
+			]),
+		);
+	}
+	return destination;
+};
 try {
-	await migrate(db, { migrationsFolder: root });
+	await migrate(db, { migrationsFolder: extract("drizzle") });
+	if (process.env.PREVIOUS_PERSONAL_RELEASE) {
+		await migrate(db, {
+			migrationsFolder: extract("personal-migrations"),
+			migrationsTable: "__personal_migrations",
+		});
+	}
 	const before =
 		await sql`select count(*)::int as count from drizzle.__drizzle_migrations`;
 	// An existing upstream record must survive both the upgrade and a repeated startup.
@@ -43,15 +58,18 @@ try {
 		await sql`select count(*)::int as count from drizzle.__drizzle_migrations`;
 	const columns =
 		await sql`select column_name from information_schema.columns where table_name = 'compose' and column_name = 'previewEnv'`;
+	const expected = JSON.parse(
+		readFileSync("personal-migrations/meta/_journal.json", "utf8"),
+	).entries.length;
 	if (
 		sentinel?.value !== "preserved" ||
-		personal?.count !== 1 ||
+		personal?.count !== expected ||
 		after!.count < before[0]!.count ||
 		columns.length !== 1
 	)
 		throw new Error("Upgrade verification failed");
 	console.log(
-		"Upstream → personal migration and repeated startup passed; data preserved.",
+		`Upgrade from ${seedVersion} and repeated startup passed; data preserved.`,
 	);
 } finally {
 	await sql.end();

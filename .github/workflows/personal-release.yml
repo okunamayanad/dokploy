@@ -67,7 +67,10 @@ jobs:
       - name: Real upstream to personal PostgreSQL upgrade
         env:
           DATABASE_URL: postgres://test:test@localhost:5432/personal_upgrade
-        run: pnpm exec tsx apps/dokploy/scripts/personal/check-migrations.ts
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PREVIOUS=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName 2>/dev/null || true)
+          PREVIOUS_PERSONAL_RELEASE="$PREVIOUS" pnpm exec tsx apps/dokploy/scripts/personal/check-migrations.ts
       - name: Installer syntax and version guard
         run: |
           bash -n scripts/personal/install.sh
