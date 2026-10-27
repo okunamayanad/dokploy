@@ -195,4 +195,5 @@ jobs:
           python3 scripts/personal/release-assets.py
           gh release create "$VERSION" release.json install.sh SHA256SUMS \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$VERSION" \
-            --notes-file release-notes.md --latest
+            --notes-file release-notes.md --draft
+          python3 scripts/personal/publish-release.py
