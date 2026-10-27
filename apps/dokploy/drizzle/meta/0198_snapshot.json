@@ -1,5 +1,5 @@
 {
-  "id": "c47d1152-3819-48a0-b857-b942e1dad28a",
+  "id": "4c5cd64c-f0fa-4b62-9a8e-504f2f435212",
   "prevId": "e2f2cd03-52dd-457a-8854-1ef6d0b5d168",
   "version": "7",
   "dialect": "postgresql",
@@ -2082,6 +2082,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "customName": {
+          "name": "customName",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "serviceName": {
           "name": "serviceName",
           "type": "text",
@@ -2490,86 +2496,6 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
-        },
-        "previewEnv": {
-          "name": "previewEnv",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "previewLabels": {
-          "name": "previewLabels",
-          "type": "text[]",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "previewWildcard": {
-          "name": "previewWildcard",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "previewServiceName": {
-          "name": "previewServiceName",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "previewPort": {
-          "name": "previewPort",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "default": 3000
-        },
-        "previewHttps": {
-          "name": "previewHttps",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "previewPath": {
-          "name": "previewPath",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "default": "'/'"
-        },
-        "previewCertificateType": {
-          "name": "previewCertificateType",
-          "type": "certificateType",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'none'"
-        },
-        "previewCustomCertResolver": {
-          "name": "previewCustomCertResolver",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "previewLimit": {
-          "name": "previewLimit",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "default": 3
-        },
-        "isPreviewDeploymentsActive": {
-          "name": "isPreviewDeploymentsActive",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": false,
-          "default": false
-        },
-        "previewRequireCollaboratorPermissions": {
-          "name": "previewRequireCollaboratorPermissions",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": false,
-          "default": true
         },
         "composeFile": {
           "name": "composeFile",
@@ -6807,13 +6733,7 @@
           "name": "applicationId",
           "type": "text",
           "primaryKey": false,
-          "notNull": false
-        },
-        "composeId": {
-          "name": "composeId",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
         "domainId": {
           "name": "domainId",
@@ -6832,13 +6752,6 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
-        },
-        "isDeleting": {
-          "name": "isDeleting",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
         }
       },
       "indexes": {},
@@ -6852,19 +6765,6 @@
           ],
           "columnsTo": [
             "applicationId"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "preview_deployments_composeId_compose_composeId_fk": {
-          "name": "preview_deployments_composeId_compose_composeId_fk",
-          "tableFrom": "preview_deployments",
-          "tableTo": "compose",
-          "columnsFrom": [
-            "composeId"
-          ],
-          "columnsTo": [
-            "composeId"
           ],
           "onDelete": "cascade",
           "onUpdate": "no action"
@@ -6894,12 +6794,7 @@
         }
       },
       "policies": {},
-      "checkConstraints": {
-        "preview_deployment_service_check": {
-          "name": "preview_deployment_service_check",
-          "value": "num_nonnulls(\"preview_deployments\".\"applicationId\", \"preview_deployments\".\"composeId\") = 1"
-        }
-      },
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.project": {

@@ -210,14 +210,15 @@ export const createDeploymentPreview = async (
 	const previewDeployment = await findPreviewDeploymentById(
 		deployment.previewDeploymentId,
 	);
-	const serverId =
+const serverId =
+		previewDeployment.application?.buildServerId ||
 		previewDeployment.application?.serverId ||
 		previewDeployment.compose?.serverId ||
 		null;
 	await removeLastTenDeployments(
 		deployment.previewDeploymentId,
 		"previewDeployment",
-		serverId,
+		previewDeployment.application?.serverId || previewDeployment.compose?.serverId || null,
 	);
 	try {
 		const appName = `${previewDeployment.appName}`;
@@ -251,6 +252,7 @@ export const createDeploymentPreview = async (
 				description: deployment.description || "",
 				previewDeploymentId: deployment.previewDeploymentId,
 				startedAt: new Date().toISOString(),
+				...(buildServerId && { buildServerId }),
 			})
 			.returning();
 		if (deploymentCreate.length === 0 || !deploymentCreate[0]) {
