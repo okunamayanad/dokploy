@@ -17,6 +17,8 @@ concurrency:
 jobs:
   verify:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     services:
       postgres:
         image: postgres:16-alpine
@@ -70,11 +72,26 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           PREVIOUS=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName 2>/dev/null || true)
+          if [ -n "$PREVIOUS" ]; then
+            git fetch origin "refs/tags/$PREVIOUS:refs/tags/$PREVIOUS"
+          fi
           PREVIOUS_PERSONAL_RELEASE="$PREVIOUS" pnpm exec tsx apps/dokploy/scripts/personal/check-migrations.ts
       - name: Installer syntax and version guard
         run: |
           bash -n scripts/personal/install.sh
           bash scripts/personal/test-installer.sh
+      - name: Reserve the verified release source tag before image builds
+        if: steps.release.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          if git rev-parse "refs/tags/$VERSION" >/dev/null 2>&1; then
+            test "$(git rev-parse "refs/tags/$VERSION^{commit}")" = "$GITHUB_SHA"
+          else
+            gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+              -f "ref=refs/tags/$VERSION" -f "sha=$GITHUB_SHA" --silent
+          fi
 
   build:
     needs: verify
