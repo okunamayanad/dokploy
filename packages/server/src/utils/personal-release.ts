@@ -1,4 +1,4 @@
-import release from "../personal-release.json";
+import release from "../personal-release.json" with { type: "json" };
 
 export const PERSONAL_VERSION = release.version;
 export const PERSONAL_IMAGE = release.image;

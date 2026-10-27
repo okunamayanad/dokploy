@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 
 # Docker version to install and maintain
 DOCKER_VERSION="28.5.0"

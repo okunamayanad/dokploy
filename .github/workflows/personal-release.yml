@@ -25,7 +25,7 @@ jobs:
           POSTGRES_PASSWORD: test
           POSTGRES_DB: personal_upgrade
         ports: ['5432:5432']
-        options: --health-cmd 'pg_isready -U test' --health-interval 5s --health-retries 20
+        options: --health-cmd "pg_isready -U test" --health-interval 5s --health-retries 20
     outputs:
       version: ${{ steps.release.outputs.version }}
       publish: ${{ steps.release.outputs.publish }}
@@ -140,7 +140,7 @@ jobs:
           POSTGRES_PASSWORD: test
           POSTGRES_DB: smoke
         ports: ['5432:5432']
-        options: --health-cmd 'pg_isready -U test' --health-interval 5s --health-retries 20
+        options: --health-cmd "pg_isready -U test" --health-interval 5s --health-retries 20
     steps:
       - uses: actions/checkout@v7
         with:
