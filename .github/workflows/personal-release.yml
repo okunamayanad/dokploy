@@ -74,7 +74,7 @@ jobs:
       - name: Installer syntax and version guard
         run: |
           bash -n scripts/personal/install.sh
-          if DOKPLOY_VERSION=latest bash scripts/personal/install.sh update; then exit 1; fi
+          bash scripts/personal/test-installer.sh
 
   build:
     needs: verify
