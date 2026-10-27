@@ -1,3 +1,7 @@
+> **Personal fork:** developed on `personal`, with Compose pull request previews and `vX.Y.Z.D` releases.
+> Use [this fork's releases](https://github.com/okunamayanad/dokploy/releases) and [maintenance / upgrade guide](PERSONAL.md).
+> This distribution includes upstream canary development in addition to its recorded stable base.
+
 <div align="center">
   <a href="https://dokploy.com">
     <img src=".github/sponsors/logo.png" alt="Dokploy - Open Source Alternative to Vercel, Heroku and Netlify." width="100%"  />
@@ -35,15 +39,16 @@ Dokploy includes multiple features to make your life easier.
 
 ## 🚀 Getting Started
 
-To get started, run the following command on a VPS:
-
-Want to skip the installation process? [Try the Dokploy Cloud](https://app.dokploy.com).
+For a fresh Linux VPS, download and inspect this fork's installer, then run it:
 
 ```bash
-curl -sSL https://dokploy.com/install.sh | bash
+curl -fL https://github.com/okunamayanad/dokploy/releases/latest/download/install.sh -o install.sh
+# Inspect install.sh before running it.
+sudo bash install.sh
 ```
 
-For detailed documentation, visit [docs.dokploy.com](https://docs.dokploy.com).
+For existing installations, back up first and follow [PERSONAL.md](PERSONAL.md); use `bash install.sh update` instead of the fresh-install command.
+General upstream documentation is available at [docs.dokploy.com](https://docs.dokploy.com).
 
 
 [Github Sponsors](https://github.com/sponsors/Siumauricio)
