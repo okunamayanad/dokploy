@@ -240,7 +240,8 @@ export const cloneGithubRepository = async ({
 		const auth = getGitTokenAuthConfig(cloneUrl, token);
 		command += `git ${auth} clone --no-checkout --depth 1 ${quote([cloneUrl, outputPath])};`;
 		command += `git -C ${quote([outputPath])} ${auth} fetch --depth 1 origin ${quote([`refs/pull/${entity.pullRequestNumber}/head`])};`;
-		command += `git -C ${quote([outputPath])} checkout --detach FETCH_HEAD;`;
+		// Checkout can download LFS objects through the smudge filter.
+		command += `git -C ${quote([outputPath])} ${auth} checkout --detach FETCH_HEAD;`;
 		if (enableSubmodules)
 			command += `git -C ${quote([outputPath])} ${auth} submodule update --init --recursive --depth 1;`;
 	} else {
