@@ -1,7 +1,7 @@
+import { parse } from "shell-quote";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// cloneGithubRepository builds a shell command; the only thing under test here
-// is which host ends up in the clone URL, so the app auth is stubbed out.
+// Test generated clone commands without requesting real GitHub App tokens.
 const mockFindGithubById = vi.hoisted(() => vi.fn());
 
 vi.mock("@dokploy/server/services/github", () => ({
@@ -111,4 +111,54 @@ describe("cloneGithubRepository host", () => {
 		expect(command).toContain("submodule update --init --recursive");
 		expect(command).not.toContain("--branch feature");
 	});
+
+	it.each(["https://github.com", "https://github.acme.com:8443"])(
+		"authenticates PR checkout for LFS using transient config on %s",
+		async (githubUrl) => {
+			mockFindGithubById.mockResolvedValue(provider(githubUrl));
+			const command = await cloneGithubRepository({
+				appName: "preview-web",
+				owner: "acme",
+				repository: "web",
+				branch: "feature",
+				githubId: "gh-1",
+				enableSubmodules: true,
+				serverId: null,
+				type: "compose",
+				outputPathOverride: "/tmp/compose preview/code",
+				pullRequestNumber: "42",
+			});
+			const commands = command
+				.split(";")
+				.filter(Boolean)
+				.map((part) => parse(part));
+			const gitCommands = commands.filter((args) => args[0] === "git");
+			const credentials = Buffer.from("oauth2:gh-token").toString("base64");
+			const header = `http.${githubUrl}/.extraHeader=Authorization: Basic ${credentials}`;
+
+			// Checkout runs LFS smudge as a child process; auth must be on this
+			// invocation too, not just on the preceding clone and fetch.
+			expect(gitCommands.map((args) => args.includes(header))).toEqual([
+				true,
+				true,
+				true,
+				true,
+			]);
+			expect(gitCommands[2]).toEqual([
+				"git",
+				"-C",
+				"/tmp/compose preview/code",
+				"-c",
+				header,
+				"checkout",
+				"--detach",
+				"FETCH_HEAD",
+			]);
+			expect(gitCommands.some((args) => args.includes("config"))).toBe(false);
+			expect(command).not.toContain("gh-token");
+			for (const args of commands.filter((args) => args[0] !== "git")) {
+				expect(JSON.stringify(args)).not.toContain(credentials);
+			}
+		},
+	);
 });
