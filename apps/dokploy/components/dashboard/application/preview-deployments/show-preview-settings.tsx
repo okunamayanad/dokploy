@@ -1,7 +1,12 @@
+import {
+	type PreviewDomainTemplate,
+	previewDomainsSchema,
+	validatePreviewDomainPrimary,
+} from "@dokploy/server/db/validations/preview-domain";
 import { standardSchemaResolver as zodResolver } from "@hookform/resolvers/standard-schema";
 import { HelpCircle, Plus, Settings2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { useForm } from "react-hook-form";
+import { useFieldArray, useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 import { AlertBlock } from "@/components/shared/alert-block";
@@ -42,6 +47,7 @@ import {
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { api } from "@/utils/api";
+import { PreviewServiceSelect } from "./preview-service-select";
 
 const schema = z
 	.object({
@@ -52,6 +58,7 @@ const schema = z
 		port: z.number(),
 		previewLimit: z.number().int().min(1),
 		previewServiceName: z.string().optional(),
+		previewDomains: previewDomainsSchema,
 		previewLabels: z.array(z.string()).optional(),
 		previewHttps: z.boolean(),
 		previewPath: z.string(),
@@ -59,6 +66,7 @@ const schema = z
 		previewCustomCertResolver: z.string().optional(),
 		previewRequireCollaboratorPermissions: z.boolean(),
 	})
+	.superRefine(validatePreviewDomainPrimary)
 	.superRefine((input, ctx) => {
 		if (
 			input.previewCertificateType === "custom" &&
@@ -112,6 +120,7 @@ export const ShowPreviewSettings = ({ applicationId, composeId }: Props) => {
 	const updateApplication = (
 		input: Parameters<typeof mutateApplication>[0] & {
 			previewServiceName?: string;
+			previewDomains?: PreviewDomainTemplate[];
 		},
 	) =>
 		composeId
@@ -119,6 +128,7 @@ export const ShowPreviewSettings = ({ applicationId, composeId }: Props) => {
 					composeId,
 					previewEnv: input.previewEnv,
 					previewServiceName: input.previewServiceName,
+					previewDomains: input.previewDomains,
 					previewWildcard: input.previewWildcard,
 					previewPort: input.previewPort,
 					previewLabels: input.previewLabels ?? undefined,
@@ -133,12 +143,13 @@ export const ShowPreviewSettings = ({ applicationId, composeId }: Props) => {
 				})
 			: mutateApplication(input);
 
-	const form = useForm<Schema>({
+	const form = useForm<z.input<typeof schema>, unknown, Schema>({
 		defaultValues: {
 			env: "",
 			buildArgs: "",
 			buildSecrets: "",
 			previewServiceName: "",
+			previewDomains: [],
 			wildcardDomain: "*.sslip.io",
 			port: 3000,
 			previewLimit: 3,
@@ -151,6 +162,14 @@ export const ShowPreviewSettings = ({ applicationId, composeId }: Props) => {
 		resolver: zodResolver(schema),
 	});
 
+	const templates = useFieldArray({
+		control: form.control,
+		name: "previewDomains",
+	});
+	const { data: services } = api.compose.loadServices.useQuery(
+		{ composeId: composeId || "", type: "cache" },
+		{ enabled: isOpen && !!composeId, retry: false },
+	);
 	const previewHttps = form.watch("previewHttps");
 	const wildcardDomain = form.watch("wildcardDomain");
 	const isTraefikMeDomain = wildcardDomain?.includes("sslip.io") || false;
@@ -163,6 +182,7 @@ export const ShowPreviewSettings = ({ applicationId, composeId }: Props) => {
 		if (data) {
 			form.reset({
 				env: data.previewEnv || "",
+				previewDomains: "previewDomains" in data ? data.previewDomains : [],
 				previewServiceName:
 					"previewServiceName" in data ? data.previewServiceName || "" : "",
 				buildArgs: data.previewBuildArgs || "",
@@ -193,6 +213,7 @@ export const ShowPreviewSettings = ({ applicationId, composeId }: Props) => {
 			...(composeId
 				? {
 						previewServiceName: formData.previewServiceName?.trim(),
+						previewDomains: formData.previewDomains,
 						isPreviewDeploymentsActive: isEnabled,
 					}
 				: {}),
@@ -251,15 +272,157 @@ export const ShowPreviewSettings = ({ applicationId, composeId }: Props) => {
 								className="grid w-full gap-4"
 							>
 								{composeId && (
+									<div className="flex flex-col gap-4">
+										<h3>Additional service domains</h3>
+										<p className="text-sm text-muted-foreground">
+											Each service gets a generated preview domain. New
+											templates are added on the next deployment; existing
+											domains keep their settings.
+										</p>
+										{templates.fields.map((template, index) => (
+											<div
+												key={template.id}
+												className="grid grid-cols-2 gap-4 rounded-lg border p-4"
+											>
+												<FormField
+													control={form.control}
+													name={`previewDomains.${index}.serviceName`}
+													render={({ field }) => (
+														<FormItem>
+															<FormLabel>Service</FormLabel>
+															<PreviewServiceSelect
+																services={services}
+																value={field.value}
+																onChange={field.onChange}
+															/>
+															<FormMessage />
+														</FormItem>
+													)}
+												/>
+												<FormField
+													control={form.control}
+													name={`previewDomains.${index}.port`}
+													render={({ field }) => (
+														<FormItem>
+															<FormLabel>Port</FormLabel>
+															<FormControl>
+																<NumberInput {...field} />
+															</FormControl>
+															<FormMessage />
+														</FormItem>
+													)}
+												/>
+												<FormField
+													control={form.control}
+													name={`previewDomains.${index}.path`}
+													render={({ field }) => (
+														<FormItem>
+															<FormLabel>Path</FormLabel>
+															<FormControl>
+																<Input {...field} />
+															</FormControl>
+															<FormMessage />
+														</FormItem>
+													)}
+												/>
+												<FormField
+													control={form.control}
+													name={`previewDomains.${index}.https`}
+													render={({ field }) => (
+														<FormItem>
+															<FormLabel>HTTPS</FormLabel>
+															<FormControl>
+																<Switch
+																	checked={field.value}
+																	onCheckedChange={field.onChange}
+																/>
+															</FormControl>
+															<FormMessage />
+														</FormItem>
+													)}
+												/>
+												<FormField
+													control={form.control}
+													name={`previewDomains.${index}.certificateType`}
+													render={({ field }) => (
+														<FormItem>
+															<FormLabel>Certificate provider</FormLabel>
+															<Select
+																value={field.value}
+																onValueChange={field.onChange}
+															>
+																<FormControl>
+																	<SelectTrigger>
+																		<SelectValue />
+																	</SelectTrigger>
+																</FormControl>
+																<SelectContent>
+																	<SelectItem value="none">None</SelectItem>
+																	<SelectItem value="letsencrypt">
+																		Let's Encrypt
+																	</SelectItem>
+																	<SelectItem value="custom">Custom</SelectItem>
+																</SelectContent>
+															</Select>
+															<FormMessage />
+														</FormItem>
+													)}
+												/>
+												{form.watch(
+													`previewDomains.${index}.certificateType`,
+												) === "custom" && (
+													<FormField
+														control={form.control}
+														name={`previewDomains.${index}.customCertResolver`}
+														render={({ field }) => (
+															<FormItem>
+																<FormLabel>Custom resolver</FormLabel>
+																<FormControl>
+																	<Input {...field} value={field.value || ""} />
+																</FormControl>
+																<FormMessage />
+															</FormItem>
+														)}
+													/>
+												)}
+												<Button
+													type="button"
+													variant="ghost"
+													onClick={() => templates.remove(index)}
+												>
+													Remove domain
+												</Button>
+											</div>
+										))}
+										<Button
+											type="button"
+											variant="outline"
+											onClick={() =>
+												templates.append({
+													serviceName: "",
+													port: 3000,
+													path: "/",
+													https: false,
+													certificateType: "none",
+												})
+											}
+										>
+											Add service domain
+										</Button>
+									</div>
+								)}
+								{composeId && (
 									<FormField
 										control={form.control}
 										name="previewServiceName"
 										render={({ field }) => (
 											<FormItem>
 												<FormLabel>Compose Service</FormLabel>
-												<FormControl>
-													<Input placeholder="web" {...field} />
-												</FormControl>
+												<PreviewServiceSelect
+													services={services}
+													value={field.value}
+													onChange={field.onChange}
+												/>
 												<FormDescription>
 													The service name in your Compose file to expose at the
 													preview URL.

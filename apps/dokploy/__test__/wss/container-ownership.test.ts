@@ -4,8 +4,10 @@ const mockRows = vi.hoisted(
 	() => new Map<unknown, { appName: string; serverId: string | null }>(),
 );
 const mockExec = vi.hoisted(() => vi.fn());
+const mockPreview = vi.hoisted(() => vi.fn());
 vi.mock("@dokploy/server/db", () => ({
 	db: {
+		query: { previewDeployments: { findFirst: mockPreview } },
 		select: () => ({
 			from: (table: unknown) => ({
 				where: () => ({
@@ -23,18 +25,51 @@ vi.mock("@dokploy/server/utils/process/execAsync", () => ({
 	execAsyncRemote: mockExec,
 }));
 
-import { applications, libsql } from "@dokploy/server/db/schema";
+import { applications, compose, libsql } from "@dokploy/server/db/schema";
+import { PgDialect } from "drizzle-orm/pg-core";
 import { containerBelongsToService } from "@/server/wss/container-ownership";
 
 const labels = (l: Record<string, string>) => ({ stdout: JSON.stringify(l) });
 
 beforeEach(() => {
 	vi.clearAllMocks();
+	mockPreview.mockReset();
 	mockRows.clear();
 	mockRows.set(applications, { appName: "app-mine-abc123", serverId: null });
 });
 
 describe("containerBelongsToService", () => {
+	it("allows compose preview containers only through their parent service", async () => {
+		mockRows.clear();
+		mockRows.set(compose, { appName: "parent-compose", serverId: "srv-1" });
+		mockExec.mockResolvedValue(
+			labels({ "com.docker.compose.project": "preview-one" }),
+		);
+		mockPreview.mockResolvedValue({ previewDeploymentId: "preview" });
+		expect(await containerBelongsToService("parent-id", "c1", "srv-1")).toBe(
+			true,
+		);
+		const query = new PgDialect().sqlToQuery(
+			mockPreview.mock.calls[0]?.[0].where,
+		);
+		expect(query.params).toEqual(["parent-id", "preview-one", false]);
+		mockPreview.mockResolvedValue(undefined);
+		expect(
+			await containerBelongsToService("other-parent-id", "c1", "srv-1"),
+		).toBe(false);
+	});
+	it("rejects preview containers on another server or under an application", async () => {
+		mockExec.mockResolvedValue(
+			labels({ "com.docker.compose.project": "preview-one" }),
+		);
+		expect(await containerBelongsToService("app-id", "c1")).toBe(false);
+		mockRows.clear();
+		mockRows.set(compose, { appName: "parent-compose", serverId: "srv-1" });
+		expect(await containerBelongsToService("parent-id", "c1", "srv-2")).toBe(
+			false,
+		);
+		expect(mockPreview).not.toHaveBeenCalled();
+	});
 	it("allows a container of the service", async () => {
 		mockExec.mockResolvedValue(
 			labels({ "com.docker.swarm.service.name": "app-mine-abc123" }),

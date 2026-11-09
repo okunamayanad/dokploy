@@ -123,7 +123,12 @@ export const writeDomainsToCompose = async (
 	domains: Domain[],
 ) => {
 	try {
-		const composeConverted = await addDomainToCompose(compose, domains);
+		const warnings: string[] = [];
+		const composeConverted = await addDomainToCompose(
+			compose,
+			domains,
+			(warning) => warnings.push(warning),
+		);
 		const path = getComposePath(compose);
 
 		if (!composeConverted) {
@@ -142,7 +147,7 @@ exit 1;
 					getPreviewComposePaths(composeConverted, path),
 				)
 			: "";
-		return `${validate}echo "${encodedContent}" | base64 -d > "${path}";`;
+		return `${warnings.map((warning) => `echo ${quote([warning])};`).join("\n")}${validate}echo "${encodedContent}" | base64 -d > "${path}";`;
 	} catch (error) {
 		const message =
 			error instanceof Error ? error.message : String(error ?? "");
@@ -214,6 +219,7 @@ const removeDomainLabels = (
 
 type ComposeWithMetadata = Compose & {
 	previewDeploymentId?: string;
+	previewPrimaryDomainId?: string | null;
 	environment?: {
 		environmentId: string;
 		name: string;
@@ -281,6 +287,7 @@ const mergeDokployLabels = (
 export const addDomainToCompose = async (
 	compose: ComposeWithMetadata,
 	domains: Domain[],
+	warn: (message: string) => void = console.warn,
 ) => {
 	const { appName } = compose;
 
@@ -335,7 +342,15 @@ export const addDomainToCompose = async (
 		}
 	}
 
-	for (const domain of domains) {
+	const routedDomains = compose.previewDeploymentId
+		? filterPreviewDomains(
+				domains,
+				result,
+				compose.previewPrimaryDomainId,
+				warn,
+			)
+		: domains;
+	for (const domain of routedDomains) {
 		const { serviceName, https } = domain;
 		if (!domain.enabled) {
 			// Disabling only drops routing; the service may still talk to others over dokploy-network.
@@ -682,3 +697,21 @@ export const addDokployNetworkToRoot = (
 
 	return networks;
 };
+
+export const filterPreviewDomains = (
+	domains: Domain[],
+	specification: ComposeSpecification,
+	primaryDomainId: string | null | undefined,
+	warn: (message: string) => void,
+) =>
+	domains.filter((domain) => {
+		if (
+			domain.domainId === primaryDomainId ||
+			(domain.serviceName && specification.services?.[domain.serviceName])
+		)
+			return true;
+		warn(
+			`Warning: skipping preview domain "${domain.host}": service "${domain.serviceName || ""}" does not exist in compose`,
+		);
+		return false;
+	});

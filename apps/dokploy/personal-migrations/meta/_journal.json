@@ -8,6 +8,13 @@
 			"when": 1792795231366,
 			"tag": "0000_compose_preview_deployments",
 			"breakpoints": true
+		},
+		{
+			"idx": 1,
+			"version": "7",
+			"when": 1794229200000,
+			"tag": "0001_compose_preview_domains",
+			"breakpoints": true
 		}
 	]
 }

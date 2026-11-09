@@ -57,6 +57,7 @@ export const previewDeployments = pgTable(
 export const previewDeploymentsRelations = relations(
 	previewDeployments,
 	({ one, many }) => ({
+		domains: many(domains, { relationName: "previewDomains" }),
 		deployments: many(deployments),
 		domain: one(domains, {
 			fields: [previewDeployments.domainId],

@@ -199,6 +199,23 @@ export const composeRouter = createTRPCRouter({
 			await checkServicePermissionAndAccess(ctx, input.composeId, {
 				service: ["create"],
 			});
+			if (
+				input.previewDomains !== undefined ||
+				input.previewServiceName !== undefined
+			) {
+				const current = await findComposeById(input.composeId);
+				const primary = input.previewServiceName ?? current.previewServiceName;
+				if (
+					(input.previewDomains ?? current.previewDomains).some(
+						(template) => template.serviceName === primary,
+					)
+				)
+					throw new TRPCError({
+						code: "BAD_REQUEST",
+						message:
+							"Additional domains must use a different service than the primary",
+					});
+			}
 			if (input.isPreviewDeploymentsActive) {
 				const current = await findComposeById(input.composeId);
 				const settings = { ...current, ...input };
