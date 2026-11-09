@@ -69,6 +69,7 @@ export const domainsRelations = relations(domains, ({ one }) => ({
 		references: [compose.composeId],
 	}),
 	previewDeployment: one(previewDeployments, {
+		relationName: "previewDomains",
 		fields: [domains.previewDeploymentId],
 		references: [previewDeployments.previewDeploymentId],
 	}),

@@ -9,6 +9,7 @@ import {
 	generateTraefikMeDomain,
 	getServerIpCandidates,
 	getWebServerSettings,
+	isPrimaryPreviewDomain,
 	manageDomain,
 	removeDomain,
 	removeDomainById,
@@ -37,7 +38,24 @@ export const domainRouter = createTRPCRouter({
 		.input(apiCreateDomain)
 		.mutation(async ({ input, ctx }) => {
 			try {
-				if (input.domainType === "compose" && input.composeId) {
+				if (input.previewDeploymentId) {
+					const preview = await findPreviewDeploymentById(
+						input.previewDeploymentId,
+					);
+					await checkServicePermissionAndAccess(
+						ctx,
+						(preview.applicationId || preview.composeId)!,
+						{ domain: ["create"] },
+					);
+					if (preview.composeId && !input.serviceName?.trim())
+						throw new TRPCError({
+							code: "BAD_REQUEST",
+							message: "A Compose service is required",
+						});
+					input.domainType = "preview";
+					input.applicationId = undefined;
+					input.composeId = undefined;
+				} else if (input.domainType === "compose" && input.composeId) {
 					await checkServicePermissionAndAccess(ctx, input.composeId, {
 						domain: ["create"],
 					});
@@ -237,6 +255,11 @@ export const domainRouter = createTRPCRouter({
 		.input(apiFindDomain)
 		.mutation(async ({ input, ctx }) => {
 			const domain = await findDomainById(input.domainId);
+			if (await isPrimaryPreviewDomain(domain.domainId))
+				throw new TRPCError({
+					code: "BAD_REQUEST",
+					message: "The primary preview domain cannot be deleted",
+				});
 			const serviceId = domain.applicationId || domain.composeId;
 			if (serviceId) {
 				await checkServicePermissionAndAccess(ctx, serviceId, {

@@ -24,6 +24,12 @@ import { getWebServerSettings } from "./web-server-settings";
 
 export type PreviewDeployment = typeof previewDeployments.$inferSelect;
 
+export const isPrimaryPreviewDomain = async (domainId: string) =>
+	!!(await db.query.previewDeployments.findFirst({
+		where: eq(previewDeployments.domainId, domainId),
+		columns: { previewDeploymentId: true },
+	}));
+
 export const findPreviewDeploymentById = async (
 	previewDeploymentId: string,
 ) => {
@@ -31,6 +37,7 @@ export const findPreviewDeploymentById = async (
 		where: eq(previewDeployments.previewDeploymentId, previewDeploymentId),
 		with: {
 			domain: true,
+			domains: true,
 			compose: { columns: { composeId: true, serverId: true } },
 			application: {
 				columns: {
@@ -155,6 +162,7 @@ export const findPreviewDeploymentsByApplicationId = async (
 				orderBy: desc(deployments.createdAt),
 			},
 			domain: true,
+			domains: true,
 		},
 	});
 	return deploymentsList;
@@ -187,7 +195,7 @@ export const createPreviewDeployment = async (
 	const org = await db.query.organization.findFirst({
 		where: eq(organization.id, application.environment.project.organizationId),
 	});
-	const generateDomain = await generateWildcardDomain(
+	const generateDomain = await generatePreviewWildcardDomain(
 		application.previewWildcard || "*.sslip.io",
 		appName,
 		application.server?.ipAddress || "",
@@ -272,6 +280,8 @@ export const createPreviewDeployment = async (
 			),
 		);
 
+	if (schema.composeId)
+		await ensurePreviewTemplateDomains(previewDeployment.previewDeploymentId);
 	return previewDeployment;
 };
 
@@ -306,6 +316,7 @@ export const findPreviewDeploymentsByComposeId = async (composeId: string) => {
 		with: {
 			deployments: { orderBy: desc(deployments.createdAt) },
 			domain: true,
+			domains: true,
 		},
 	});
 };
@@ -322,16 +333,19 @@ export const findPreviewDeploymentByComposeId = async (
 	});
 };
 
-const generateWildcardDomain = async (
+export const generatePreviewWildcardDomain = async (
 	baseDomain: string,
 	appName: string,
 	serverIp: string,
-	_userId: string,
+	_userId?: string,
+	servicePrefix?: string,
 ): Promise<string> => {
 	if (!baseDomain.startsWith("*.")) {
 		throw new Error('The base domain must start with "*."');
 	}
-	const hash = `${appName}`;
+	const hash = servicePrefix
+		? getPreviewDomainLabel(servicePrefix, appName)
+		: appName;
 	if (baseDomain.includes("sslip.io")) {
 		let ip = "";
 
@@ -349,11 +363,70 @@ const generateWildcardDomain = async (
 		}
 
 		const slugIp = ip.replaceAll(".", "-");
+		const label = servicePrefix
+			? getPreviewDomainLabel(
+					servicePrefix,
+					appName,
+					63 - (slugIp ? slugIp.length + 1 : 0),
+				)
+			: hash;
 		return baseDomain.replace(
 			"*",
-			`${hash}${slugIp === "" ? "" : `-${slugIp}`}`,
+			`${label}${slugIp === "" ? "" : `-${slugIp}`}`,
 		);
 	}
 
 	return baseDomain.replace("*", hash);
+};
+
+export const getPreviewDomainLabel = (
+	serviceName: string,
+	appName: string,
+	labelLimit = 63,
+) => {
+	const maxLength = labelLimit - appName.length - 1;
+	if (maxLength < 1)
+		throw new Error("Preview app name is too long for an additional domain");
+	const slug =
+		serviceName
+			.toLowerCase()
+			.replace(/[^a-z0-9-]/g, "-")
+			.replace(/-+/g, "-")
+			.replace(/^-|-$/g, "")
+			.slice(0, maxLength)
+			.replace(/-+$/g, "") || "service".slice(0, maxLength);
+	return `${slug}-${appName}`;
+};
+
+export const ensurePreviewTemplateDomains = async (
+	previewDeploymentId: string,
+) => {
+	const preview = await findPreviewDeploymentById(previewDeploymentId);
+	if (!preview.composeId) return preview;
+	if (preview.isDeleting)
+		throw new TRPCError({
+			code: "CONFLICT",
+			message: "Preview deletion is in progress",
+		});
+	const compose = await findComposeById(preview.composeId);
+	const previewDomains = [...(preview.domains ?? [])];
+	const names = new Set(previewDomains.map((domain) => domain.serviceName));
+	for (const template of compose.previewDomains ?? []) {
+		if (names.has(template.serviceName)) continue;
+		const domain = await createDomain({
+			...template,
+			host: await generatePreviewWildcardDomain(
+				compose.previewWildcard || "*.sslip.io",
+				preview.appName,
+				compose.server?.ipAddress || "",
+				undefined,
+				template.serviceName,
+			),
+			domainType: "preview",
+			previewDeploymentId,
+		});
+		previewDomains.push(domain);
+		names.add(template.serviceName);
+	}
+	return { ...preview, domains: previewDomains };
 };

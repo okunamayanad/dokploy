@@ -11,6 +11,19 @@ import {
 import { createInsertSchema } from "drizzle-zod";
 import { nanoid } from "nanoid";
 import { z } from "zod";
+import {
+	type PreviewDomainTemplate,
+	previewDomainsSchema,
+	validatePreviewDomainPrimary,
+} from "../validations/preview-domain";
+
+export {
+	type PreviewDomainTemplate,
+	previewDomainsSchema,
+	previewDomainTemplateSchema,
+	validatePreviewDomainPrimary,
+} from "../validations/preview-domain";
+
 import { backups } from "./backups";
 import { bitbucket } from "./bitbucket";
 import { deployments } from "./deployment";
@@ -58,6 +71,10 @@ export const compose = pgTable("compose", {
 	previewLabels: text("previewLabels").array(),
 	previewWildcard: text("previewWildcard"),
 	previewServiceName: text("previewServiceName"),
+	previewDomains: jsonb("previewDomains")
+		.$type<PreviewDomainTemplate[]>()
+		.notNull()
+		.default([]),
 	previewPort: integer("previewPort").default(3000),
 	previewHttps: boolean("previewHttps").notNull().default(false),
 	previewPath: text("previewPath").default("/"),
@@ -211,6 +228,7 @@ const createSchema = createInsertSchema(compose, {
 		)
 		.optional(),
 	previewServiceName: z.string().min(1).optional(),
+	previewDomains: previewDomainsSchema.optional(),
 	previewPort: z.number().int().min(1).max(65535).optional(),
 	previewLimit: z.number().int().min(1).optional(),
 	previewCertificateType: z.enum(["letsencrypt", "none", "custom"]).optional(),
@@ -311,7 +329,8 @@ export const apiUpdateCompose = createSchema
 		composeFile: z.string().optional(),
 		command: z.string().optional(),
 	})
-	.omit({ serverId: true });
+	.omit({ serverId: true })
+	.superRefine(validatePreviewDomainPrimary);
 
 export const apiSaveEnvironmentVariablesCompose = createSchema
 	.pick({

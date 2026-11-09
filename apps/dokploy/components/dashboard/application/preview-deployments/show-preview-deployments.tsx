@@ -23,6 +23,13 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/components/ui/card";
+import {
+	Dialog,
+	DialogContent,
+	DialogHeader,
+	DialogTitle,
+	DialogTrigger,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
 	Tooltip,
@@ -31,6 +38,7 @@ import {
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { api } from "@/utils/api";
+import { ShowComposeContainers } from "../../compose/containers/show-compose-containers";
 import { ShowModalLogs } from "../../settings/web-server/show-modal-logs";
 import { ShowDeploymentsModal } from "../deployments/show-deployments-modal";
 import { AddPreviewDomain } from "./add-preview-domain";
@@ -52,6 +60,7 @@ export const ShowPreviewDeployments = ({ applicationId, composeId }: Props) => {
 	);
 	const data = composeId ? compose : application;
 
+	const { mutateAsync: deleteDomain } = api.domain.delete.useMutation();
 	const { mutateAsync: deletePreviewDeployment, isPending } =
 		api.previewDeployment.delete.useMutation();
 
@@ -164,17 +173,99 @@ export const ShowPreviewDeployments = ({ applicationId, composeId }: Props) => {
 												</div>
 
 												<div className="pl-8 space-y-3">
-													<div className="relative grow">
-														<Input
-															value={deploymentUrl}
-															readOnly
-															className="pr-8 text-sm text-blue-500 hover:text-blue-600 cursor-pointer"
-															onClick={() =>
-																window.open(deploymentUrl, "_blank")
-															}
-														/>
-														<ExternalLink className="absolute right-3 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
-													</div>
+													{composeId && (
+														<div className="flex flex-col gap-2">
+															{[...(deployment.domains || [])]
+																.sort(
+																	(a, b) =>
+																		Number(b.domainId === deployment.domainId) -
+																		Number(a.domainId === deployment.domainId),
+																)
+																.map((domain) => (
+																	<div
+																		key={domain.domainId}
+																		className="flex items-center gap-2"
+																	>
+																		<a
+																			className="truncate"
+																			href={`${domain.https ? "https" : "http"}://${domain.host}${domain.path || "/"}`}
+																			target="_blank"
+																			rel="noreferrer"
+																		>
+																			{domain.host}
+																			{domain.path || "/"}
+																		</a>
+																		<AddPreviewDomain
+																			previewDeploymentId={
+																				deployment.previewDeploymentId
+																			}
+																			domainId={domain.domainId}
+																		>
+																			<Button
+																				variant="ghost"
+																				size="sm"
+																				aria-label={`Edit ${domain.host}`}
+																			>
+																				<PenSquare />
+																			</Button>
+																		</AddPreviewDomain>
+																		{domain.domainId !==
+																			deployment.domainId && (
+																			<DialogAction
+																				title="Delete domain"
+																				description={
+																					compose?.previewDomains?.some(
+																						(template) =>
+																							template.serviceName ===
+																							domain.serviceName,
+																					)
+																						? "This domain comes from an additional service domain in preview settings and will be recreated on the next deploy. Remove it from the settings to stop that."
+																						: "Delete this preview domain? Rebuild the preview to apply routing changes."
+																				}
+																				onClick={async () => {
+																					try {
+																						await deleteDomain({
+																							domainId: domain.domainId,
+																						});
+																						await refetchPreviewDeployments();
+																						toast.success(
+																							"Domain deleted. Rebuild preview to apply routing changes.",
+																						);
+																					} catch (error) {
+																						toast.error(
+																							error instanceof Error
+																								? error.message
+																								: "Could not delete domain",
+																						);
+																					}
+																				}}
+																			>
+																				<Button
+																					variant="ghost"
+																					size="sm"
+																					aria-label={`Delete ${domain.host}`}
+																				>
+																					<Trash2 />
+																				</Button>
+																			</DialogAction>
+																		)}
+																	</div>
+																))}
+														</div>
+													)}
+													{!composeId && (
+														<div className="relative grow">
+															<Input
+																value={deploymentUrl}
+																readOnly
+																className="pr-8 text-sm text-blue-500 hover:text-blue-600 cursor-pointer"
+																onClick={() =>
+																	window.open(deploymentUrl, "_blank")
+																}
+															/>
+															<ExternalLink className="absolute right-3 top-1/2 -translate-y-1/2 size-4 text-gray-400" />
+														</div>
+													)}
 
 													<div className="flex gap-2 opacity-80 group-hover:opacity-100 transition-opacity">
 														<Button
@@ -271,19 +362,54 @@ export const ShowPreviewDeployments = ({ applicationId, composeId }: Props) => {
 															</Button>
 														</DialogAction>
 
-														<AddPreviewDomain
-															previewDeploymentId={`${deployment.previewDeploymentId}`}
-															domainId={deployment.domain?.domainId}
-														>
-															<Button
-																variant="ghost"
-																size="sm"
-																aria-label="Edit preview domain"
-																className="gap-2"
+														{composeId && (
+															<>
+																<AddPreviewDomain
+																	previewDeploymentId={
+																		deployment.previewDeploymentId
+																	}
+																>
+																	<Button variant="outline" size="sm">
+																		Add domain
+																	</Button>
+																</AddPreviewDomain>
+																<Dialog>
+																	<DialogTrigger asChild>
+																		<Button variant="outline" size="sm">
+																			Containers
+																		</Button>
+																	</DialogTrigger>
+																	<DialogContent className="sm:max-w-7xl max-h-[90vh] overflow-y-auto">
+																		<DialogHeader>
+																			<DialogTitle>
+																				Preview containers
+																			</DialogTitle>
+																		</DialogHeader>
+																		<ShowComposeContainers
+																			appName={deployment.appName}
+																			appType="docker-compose"
+																			serverId={data?.serverId || undefined}
+																			serviceId={composeId}
+																		/>
+																	</DialogContent>
+																</Dialog>
+															</>
+														)}
+														{!composeId && (
+															<AddPreviewDomain
+																previewDeploymentId={`${deployment.previewDeploymentId}`}
+																domainId={deployment.domain?.domainId}
 															>
-																<PenSquare className="size-4" />
-															</Button>
-														</AddPreviewDomain>
+																<Button
+																	variant="ghost"
+																	size="sm"
+																	aria-label="Edit preview domain"
+																	className="gap-2"
+																>
+																	<PenSquare className="size-4" />
+																</Button>
+															</AddPreviewDomain>
+														)}
 														<DialogAction
 															title="Delete Preview"
 															description="Are you sure you want to delete this preview?"

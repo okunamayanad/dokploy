@@ -16,6 +16,7 @@ import {
 } from "./github";
 import { generateApplyPatchesCommand } from "./patch";
 import {
+	ensurePreviewTemplateDomains,
 	findPreviewDeploymentById,
 	type PreviewDeployment,
 	updatePreviewDeployment,
@@ -25,12 +26,12 @@ export const getPreviewCompose = async (
 	composeId: string,
 	previewDeploymentId: string,
 ) => {
-	const [compose, preview] = await Promise.all([
+	const [compose, initialPreview] = await Promise.all([
 		findComposeById(composeId),
 		findPreviewDeploymentById(previewDeploymentId),
 	]);
 	if (
-		preview.composeId !== composeId ||
+		initialPreview.composeId !== composeId ||
 		compose.sourceType !== "github" ||
 		compose.composeType !== "docker-compose"
 	) {
@@ -38,11 +39,13 @@ export const getPreviewCompose = async (
 			"Preview does not belong to this Docker Compose application",
 		);
 	}
-	if (preview.isDeleting)
+	if (initialPreview.isDeleting)
 		throw new TRPCError({
 			code: "CONFLICT",
 			message: "Preview deletion is in progress",
 		});
+	const preview =
+		(await ensurePreviewTemplateDomains(previewDeploymentId)) ?? initialPreview;
 	return {
 		...compose,
 		appName: preview.appName,
@@ -55,7 +58,10 @@ export const getPreviewCompose = async (
 		isolatedDeploymentsVolume: false,
 		mounts: [],
 		serviceNetworks: [],
-		domains: preview.domain ? [preview.domain] : [],
+		domains: (
+			preview.domains ?? (preview.domain ? [preview.domain] : [])
+		).filter((domain) => domain.enabled),
+		previewPrimaryDomainId: preview.domainId,
 		previewDeploymentId,
 	};
 };

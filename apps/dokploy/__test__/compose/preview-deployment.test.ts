@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
 	findCompose: vi.fn(),
 	findPreview: vi.fn(),
+	ensureTemplates: vi.fn(),
 	updatePreview: vi.fn(),
 	createDeployment: vi.fn(),
 	updateDeploymentStatus: vi.fn(),
@@ -20,6 +21,7 @@ vi.mock("@dokploy/server/services/compose", () => ({
 	findComposeById: mocks.findCompose,
 }));
 vi.mock("@dokploy/server/services/preview-deployment", () => ({
+	ensurePreviewTemplateDomains: mocks.ensureTemplates,
 	findPreviewDeploymentById: mocks.findPreview,
 	updatePreviewDeployment: mocks.updatePreview,
 }));
@@ -80,7 +82,7 @@ describe("Compose preview lifecycle", () => {
 			pullRequestNumber: "42",
 			pullRequestCommentId: "123",
 			isDeleting: false,
-			domain: { host: "preview.example.com", https: true },
+			domain: { host: "preview.example.com", https: true, enabled: true },
 		});
 		mocks.createDeployment.mockResolvedValue({
 			deploymentId: "deployment",
@@ -134,6 +136,29 @@ describe("Compose preview lifecycle", () => {
 		});
 		expect(mocks.clone).not.toHaveBeenCalled();
 		expect(mocks.build).toHaveBeenCalled();
+	});
+
+	it("uses reconciled enabled domains while retaining the primary deployment URL", async () => {
+		const existing = await mocks.findPreview();
+		mocks.ensureTemplates.mockResolvedValue({
+			...existing,
+			domains: [
+				{ ...existing.domain, domainId: "primary" },
+				{ host: "api.preview.example.com", domainId: "api", enabled: true },
+				{
+					host: "disabled.preview.example.com",
+					domainId: "disabled",
+					enabled: false,
+				},
+			],
+		});
+		const preview = await getPreviewCompose("compose", "preview");
+		expect(mocks.ensureTemplates).toHaveBeenCalledWith("preview");
+		expect(preview.domains.map((domain) => domain.host)).toEqual([
+			"preview.example.com",
+			"api.preview.example.com",
+		]);
+		expect(preview.env).toContain("DOKPLOY_DEPLOY_URL=preview.example.com");
 	});
 
 	it("runs remote preview builds on the parent's server", async () => {

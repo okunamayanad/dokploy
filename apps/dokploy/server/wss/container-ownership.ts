@@ -7,13 +7,14 @@ import {
 	mongo,
 	mysql,
 	postgres,
+	previewDeployments,
 	redis,
 } from "@dokploy/server/db/schema";
 import {
 	execAsync,
 	execAsyncRemote,
 } from "@dokploy/server/utils/process/execAsync";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { quote } from "shell-quote";
 
 const OWNERSHIP_LABELS = [
@@ -40,7 +41,7 @@ const findService = async (serviceId: string) => {
 			.from(table)
 			.where(eq(id, serviceId))
 			.limit(1);
-		if (row) return row;
+		if (row) return { ...row, composeId: table === compose ? serviceId : null };
 	}
 };
 
@@ -104,7 +105,18 @@ export const containerBelongsToService = async (
 					targetServerId,
 				),
 			) ?? {};
-		return OWNERSHIP_LABELS.some((label) => labels[label] === service.appName);
+		if (OWNERSHIP_LABELS.some((label) => labels[label] === service.appName))
+			return true;
+		const previewAppName = labels["com.docker.compose.project"];
+		if (!service.composeId || typeof previewAppName !== "string") return false;
+		return !!(await db.query.previewDeployments.findFirst({
+			where: and(
+				eq(previewDeployments.composeId, service.composeId),
+				eq(previewDeployments.appName, previewAppName),
+				eq(previewDeployments.isDeleting, false),
+			),
+			columns: { previewDeploymentId: true },
+		}));
 	} catch {
 		return false;
 	}

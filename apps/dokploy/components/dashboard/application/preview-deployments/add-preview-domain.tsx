@@ -3,7 +3,7 @@ import { Dices } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
-import type z from "zod";
+import { z } from "zod";
 import { AlertBlock } from "@/components/shared/alert-block";
 import { Button } from "@/components/ui/button";
 import {
@@ -41,8 +41,10 @@ import {
 } from "@/components/ui/tooltip";
 import { domain } from "@/server/db/validations/domain";
 import { api } from "@/utils/api";
+import { PreviewServiceSelect } from "./preview-service-select";
 
-type Domain = z.infer<typeof domain>;
+const previewDomain = domain.extend({ serviceName: z.string().optional() });
+type Domain = z.infer<typeof previewDomain>;
 
 interface Props {
 	previewDeploymentId: string;
@@ -75,6 +77,10 @@ export const AddPreviewDomain = ({
 		},
 	);
 
+	const { data: services } = api.compose.loadServices.useQuery(
+		{ composeId: previewDeployment?.composeId || "", type: "cache" },
+		{ enabled: isOpen && !!previewDeployment?.composeId, retry: false },
+	);
 	const { mutateAsync, isError, error, isPending } = domainId
 		? api.domain.update.useMutation()
 		: api.domain.create.useMutation();
@@ -83,10 +89,12 @@ export const AddPreviewDomain = ({
 		api.domain.generateDomain.useMutation();
 
 	const form = useForm<Domain>({
-		resolver: zodResolver(domain),
+		resolver: zodResolver(previewDomain),
 	});
 
 	const host = form.watch("host");
+	const https = form.watch("https");
+	const certificateType = form.watch("certificateType");
 	const isTraefikMeDomain = host?.includes("sslip.io") || false;
 
 	useEffect(() => {
@@ -97,6 +105,7 @@ export const AddPreviewDomain = ({
 				path: data?.path || undefined,
 				port: data?.port || undefined,
 				customCertResolver: data?.customCertResolver || undefined,
+				serviceName: data?.serviceName || undefined,
 			});
 		}
 
@@ -115,10 +124,17 @@ export const AddPreviewDomain = ({
 	};
 
 	const onSubmit = async (data: Domain) => {
+		if (previewDeployment?.composeId && !data.serviceName?.trim()) {
+			form.setError("serviceName", {
+				message: "A Compose service is required",
+			});
+			return;
+		}
 		await mutateAsync({
 			domainId,
 			previewDeploymentId,
 			...data,
+			domainType: "preview",
 		})
 			.then(async () => {
 				toast.success(
@@ -155,6 +171,23 @@ export const AddPreviewDomain = ({
 						onSubmit={form.handleSubmit(onSubmit)}
 						className="grid w-full gap-8 "
 					>
+						{previewDeployment?.composeId && (
+							<FormField
+								control={form.control}
+								name="serviceName"
+								render={({ field }) => (
+									<FormItem>
+										<FormLabel>Service</FormLabel>
+										<PreviewServiceSelect
+											services={services}
+											value={field.value}
+											onChange={field.onChange}
+										/>
+										<FormMessage />
+									</FormItem>
+								)}
+							/>
+						)}
 						<div className="flex flex-col gap-4">
 							<div className="flex flex-col gap-2">
 								<FormField
@@ -271,7 +304,7 @@ export const AddPreviewDomain = ({
 									)}
 								/>
 
-								{form.getValues().https && (
+								{https && (
 									<FormField
 										control={form.control}
 										name="certificateType"
@@ -289,6 +322,9 @@ export const AddPreviewDomain = ({
 													</FormControl>
 
 													<SelectContent>
+														{previewDeployment?.composeId && (
+															<SelectItem value="custom">Custom</SelectItem>
+														)}
 														<SelectItem value="none">None</SelectItem>
 														<SelectItem value={"letsencrypt"}>
 															Let's Encrypt
@@ -300,6 +336,23 @@ export const AddPreviewDomain = ({
 										)}
 									/>
 								)}
+								{previewDeployment?.composeId &&
+									https &&
+									certificateType === "custom" && (
+										<FormField
+											control={form.control}
+											name="customCertResolver"
+											render={({ field }) => (
+												<FormItem>
+													<FormLabel>Custom resolver</FormLabel>
+													<FormControl>
+														<Input {...field} value={field.value || ""} />
+													</FormControl>
+													<FormMessage />
+												</FormItem>
+											)}
+										/>
+									)}
 							</div>
 						</div>
 					</form>
